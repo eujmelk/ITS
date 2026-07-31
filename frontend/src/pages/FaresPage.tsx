@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
-import type { FareMatrix, FareZone, Location } from '../api/types'
+import type { FareMatrix, FareZone } from '../api/types'
 import { CrudTable, useList } from '../components/Crud'
+import { EntitySelect } from '../components/EntitySelect'
 import { Alert, Empty, Field, Modal, PageHead, Panel, Spinner, money } from '../components/ui'
 import { useApp } from '../state/AppContext'
 
@@ -103,6 +104,14 @@ export default function FaresPage() {
   )
 }
 
+/**
+ * The matrix is inherently quadratic: 40 zones is 1,600 editable cells, which
+ * is both slow to render and impossible to read. Past this many zones it is
+ * hidden behind a confirmation, and bulk-fill plus the per-rule table are the
+ * better tools.
+ */
+const MATRIX_ZONE_WARN = 25
+
 function MatrixTable({
   matrix,
   onChanged,
@@ -114,6 +123,7 @@ function MatrixTable({
 }) {
   const [busyCell, setBusyCell] = useState('')
   const [error, setError] = useState('')
+  const [forceShow, setForceShow] = useState(false)
 
   const cellAt = (origin: number, destination: number) =>
     matrix.cells.find((c) => c.origin_zone_id === origin && c.destination_zone_id === destination)
@@ -142,6 +152,27 @@ function MatrixTable({
     } finally {
       setBusyCell('')
     }
+  }
+
+  if (matrix.zone_ids.length > MATRIX_ZONE_WARN && !forceShow) {
+    return (
+      <div className="alert info">
+        <strong>{matrix.zone_ids.length} zones</strong> means{' '}
+        {(matrix.zone_ids.length ** 2).toLocaleString()} cells. That is slow to
+        render and hard to read, so it is not drawn by default.{' '}
+        {matrix.missing_count > 0 && (
+          <>
+            {matrix.missing_count.toLocaleString()} cells are still unpriced —
+            “Bulk-fill empty cells” handles those in one step.
+          </>
+        )}
+        <div style={{ marginTop: 8 }}>
+          <button className="small" onClick={() => setForceShow(true)}>
+            Show the full grid anyway
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -261,11 +292,11 @@ function FillModal({ onClose, onDone }: { onClose: () => void; onDone: () => voi
 }
 
 function QuotePanel() {
-  const { items: locations } = useList<Location>('/locations', { location_type: 'stop' })
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [from, setFrom] = useState<number | null>(null)
+  const [to, setTo] = useState<number | null>(null)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
+  const stopParams = useMemo(() => ({ location_type: 'stop' }), [])
 
   async function run() {
     setError('')
@@ -283,24 +314,24 @@ function QuotePanel() {
     <>
       <Alert kind="err">{error}</Alert>
       <Field label="From stop">
-        <select value={from} onChange={(e) => setFrom(e.target.value)}>
-          <option value="">— choose —</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
+        <EntitySelect
+          endpoint="/locations"
+          params={stopParams}
+          value={from}
+          onChange={setFrom}
+          placeholder="Search stops…"
+          sublabelOf={(row) => row.zone_name}
+        />
       </Field>
       <Field label="To stop">
-        <select value={to} onChange={(e) => setTo(e.target.value)}>
-          <option value="">— choose —</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </select>
+        <EntitySelect
+          endpoint="/locations"
+          params={stopParams}
+          value={to}
+          onChange={setTo}
+          placeholder="Search stops…"
+          sublabelOf={(row) => row.zone_name}
+        />
       </Field>
       <button onClick={run} disabled={!from || !to}>
         Get price

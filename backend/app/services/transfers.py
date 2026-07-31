@@ -82,9 +82,26 @@ def build_edges(db: Session) -> list[TransferEdge]:
                 source=EXPLICIT_SOURCE,
             )
 
+    _label(db, edges.values())
     return sorted(
-        edges.values(), key=lambda e: (e.from_location_id, e.to_location_id)
+        edges.values(), key=lambda e: (e.from_location_name or "", e.to_location_name or "")
     )
+
+
+def _label(db: Session, edges) -> None:
+    """Fill in endpoint names, one query for the whole set."""
+    ids = {e.from_location_id for e in edges} | {e.to_location_id for e in edges}
+    if not ids:
+        return
+    names = {
+        location_id: name
+        for location_id, name in db.execute(
+            select(Location.id, Location.name).where(Location.id.in_(ids))
+        ).all()
+    }
+    for edge in edges:
+        edge.from_location_name = names.get(edge.from_location_id)
+        edge.to_location_name = names.get(edge.to_location_id)
 
 
 def build_adjacency(db: Session) -> dict[int, list[TransferEdge]]:

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Duty {{ duty.name }}</title>
+<style>
+  @page {
+    size: A5 landscape;
+    margin: 10mm;
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font: 7pt "DejaVu Sans", sans-serif; color: #777;
+    }
+  }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 8.5pt; color: #111; }
+  header { border-bottom: 2px solid #1f4e79; padding-bottom: 5px; margin-bottom: 8px; }
+  h1 { font-size: 14pt; margin: 0; display: inline-block; }
+  .who { float: right; text-align: right; font-size: 9pt; }
+  .who strong { font-size: 11pt; }
+  .meta { clear: both; color: #555; font-size: 7.5pt; margin-top: 4px; }
+  .totals { margin: 7px 0; }
+  .totals span {
+    display: inline-block; border: 1px solid #ddd; border-radius: 3px;
+    padding: 2px 7px; margin-right: 5px; font-size: 8pt;
+  }
+  .totals b { font-size: 10pt; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 3px 5px; border-bottom: 1px solid #e2e2e2; text-align: left; }
+  th { font-size: 7pt; text-transform: uppercase; letter-spacing: .4px; color: #666; }
+  td.time { font-variant-numeric: tabular-nums; white-space: nowrap; width: 52px; }
+  tr.break td { background: #fdf5e6; font-style: italic; }
+  tr.signon td, tr.signoff td { background: #eef3f8; }
+  .kind {
+    display: inline-block; padding: 0 5px; border-radius: 2px;
+    background: #1f4e79; color: #fff; font-size: 7pt;
+  }
+  .kind.brk { background: #a86400; }
+  .kind.sign { background: #667085; }
+  .issues { margin-top: 8px; font-size: 7.5pt; }
+  .issue { padding: 2px 5px; border-left: 3px solid #999; margin-bottom: 2px; }
+  .issue.error { border-color: #b42318; background: #fdecea; }
+  .issue.warning { border-color: #a86400; background: #fdf5e6; }
+  .foot { margin-top: 9px; font-size: 7pt; color: #777; }
+</style>
+</head>
+<body>
+<header>
+  <div class="who">
+    <strong>{{ driver_name or "Unassigned" }}</strong><br>
+    {{ duty.date }}
+  </div>
+  <h1>Duty {{ duty.name }}</h1>
+  <div class="meta">{{ board_name }}{% if duty.notes %} · {{ duty.notes }}{% endif %}</div>
+</header>
+
+<div class="totals">
+  <span>Sign on <b>{{ summary.start_seconds | hhmm }}</b></span>
+  <span>Sign off <b>{{ summary.end_seconds | hhmm }}</b></span>
+  <span>Spread <b>{{ summary.working_minutes // 60 }}h {{ summary.working_minutes % 60 }}m</b></span>
+  <span>Driving <b>{{ summary.driving_minutes // 60 }}h {{ summary.driving_minutes % 60 }}m</b></span>
+  <span>Break <b>{{ summary.break_minutes }}m</b></span>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>From</th><th>To</th><th>What</th><th>Where / block</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="{{ row.css }}">
+      <td>{{ row.sequence }}</td>
+      <td class="time">{{ row.start | hhmm }}</td>
+      <td class="time">{{ row.end | hhmm }}</td>
+      <td><span class="kind {{ row.badge }}">{{ row.label }}</span></td>
+      <td>
+        {{ row.where }}
+        {%- if row.detail %} <span style="color:#666">— {{ row.detail }}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if issues %}
+<div class="issues">
+  <strong>Rule check</strong>
+  {% for issue in issues %}
+    <div class="issue {{ issue.severity }}">{{ issue.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<p class="foot">
+  Times are on the service-day clock; anything past 24:00 falls on the
+  following morning. Generated {{ generated_at }}.
+</p>
+</body>
+</html>

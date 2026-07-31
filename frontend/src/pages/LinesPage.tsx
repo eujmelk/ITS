@@ -4,6 +4,7 @@ import type { Line, Location, Pattern, PatternStop } from '../api/types'
 import { CrudTable, useList } from '../components/Crud'
 import type { Column, FormField } from '../components/Crud'
 import { AttributeEditor, LINE_ATTRIBUTE_SUGGESTIONS } from '../components/AttributeEditor'
+import { EntitySelect } from '../components/EntitySelect'
 import { MapView } from '../components/MapView'
 import { Alert, Empty, Field, Modal, PageHead, Panel, Spinner } from '../components/ui'
 import { useApp } from '../state/AppContext'
@@ -13,13 +14,13 @@ const MODES = ['bus', 'tram', 'metro', 'rail', 'ferry', 'other']
 export default function LinesPage() {
   const { canEdit } = useApp()
   const [selectedLine, setSelectedLine] = useState<Line | null>(null)
-  const { items: lines, reload: reloadLines } = useList<Line>('/lines')
-  const { items: locations } = useList<Location>('/locations', { location_type: 'stop' })
-
+  // CrudTable owns its own paged fetch; nothing else on this page needs the
+  // full list of lines.
   const columns: Column<Line>[] = [
     {
       key: 'short_name',
       label: 'Line',
+      sortKey: 'short_name',
       render: (row) => (
         <span
           className="tag"
@@ -82,25 +83,19 @@ export default function LinesPage() {
           columns={columns}
           fields={fields}
           defaults={{ mode: 'bus', is_active: true, sort_order: 0 }}
-          onChanged={reloadLines}
           extraRowActions={(row) => (
             <>
               <button className="small" onClick={() => setSelectedLine(row)}>
                 Patterns
               </button>{' '}
-              {canEdit && <LineAttributesButton line={row} onSaved={reloadLines} />}
+              {canEdit && <LineAttributesButton line={row} onSaved={() => setSelectedLine(null)} />}
             </>
           )}
         />
       </Panel>
 
       {selectedLine && (
-        <PatternsPanel
-          line={selectedLine}
-          stops={locations}
-          onClose={() => setSelectedLine(null)}
-          onChanged={reloadLines}
-        />
+        <PatternsPanel line={selectedLine} onClose={() => setSelectedLine(null)} />
       )}
     </>
   )
@@ -160,17 +155,7 @@ function LineAttributesButton({ line, onSaved }: { line: Line; onSaved: () => vo
 
 /* -------------------------------------------------------------- patterns */
 
-function PatternsPanel({
-  line,
-  stops,
-  onClose,
-  onChanged,
-}: {
-  line: Line
-  stops: Location[]
-  onClose: () => void
-  onChanged: () => void
-}) {
+function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
   const { canEdit } = useApp()
   const params = useMemo(() => ({ line_id: line.id }), [line.id])
   const { items: patterns, reload } = useList<Pattern>('/patterns', params)
@@ -191,10 +176,7 @@ function PatternsPanel({
         params={params}
         searchable={false}
         defaults={{ line_id: line.id, direction: 0 }}
-        onChanged={() => {
-          reload()
-          onChanged()
-        }}
+        onChanged={reload}
         columns={[
           { key: 'name', label: 'Pattern' },
           {
@@ -255,7 +237,6 @@ function PatternsPanel({
       {editingStops && (
         <PatternStopsEditor
           pattern={editingStops}
-          stops={stops}
           onClose={() => setEditingStops(null)}
           onSaved={() => {
             setEditingStops(null)
@@ -269,12 +250,10 @@ function PatternsPanel({
 
 function PatternStopsEditor({
   pattern,
-  stops,
   onClose,
   onSaved,
 }: {
   pattern: Pattern
-  stops: Location[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -282,9 +261,7 @@ function PatternStopsEditor({
   const [rows, setRows] = useState<PatternStop[]>(pattern.stops ?? [])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [addId, setAddId] = useState('')
-
-  const byId = useMemo(() => new Map(stops.map((s) => [s.id, s])), [stops])
+  const stopParams = useMemo(() => ({ location_type: 'stop' }), [])
 
   function move(index: number, delta: number) {
     const target = index + delta
@@ -325,10 +302,17 @@ function PatternStopsEditor({
     }
   }
 
+  // The pattern payload already carries each stop's name and coordinates, so
+  // the editor needs no separate copy of the locations table.
   const mapPoints = rows
-    .map((row) => byId.get(row.location_id))
-    .filter((s): s is Location => !!s && s.lat != null && s.lon != null)
-    .map((s) => ({ id: s.id, name: s.name, lat: s.lat as number, lon: s.lon as number, kind: 'stop' }))
+    .filter((row) => row.lat != null && row.lon != null)
+    .map((row) => ({
+      id: row.location_id,
+      name: row.location_name ?? `#${row.location_id}`,
+      lat: row.lat as number,
+      lon: row.lon as number,
+      kind: 'stop',
+    }))
 
   return (
     <Modal
@@ -377,7 +361,7 @@ function PatternStopsEditor({
                   {rows.map((row, index) => (
                     <tr key={index}>
                       <td className="num">{index + 1}</td>
-                      <td>{byId.get(row.location_id)?.name ?? row.location_name ?? row.location_id}</td>
+                      <td>{row.location_name ?? `#${row.location_id}`}</td>
                       <td className="num">
                         <input
                           type="number"
@@ -431,37 +415,50 @@ function PatternStopsEditor({
 
           {canEdit && (
             <div className="toolbar" style={{ marginTop: 10 }}>
-              <select value={addId} onChange={(e) => setAddId(e.target.value)} style={{ minWidth: 260 }}>
-                <option value="">— add a stop —</option>
-                {stops.map((stop) => (
-                  <option key={stop.id} value={stop.id}>
-                    {stop.name} {stop.code ? `(${stop.code})` : ''}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => {
-                  if (!addId) return
-                  setRows([
-                    ...rows,
-                    {
-                      sequence: rows.length + 1,
-                      location_id: Number(addId),
-                      is_timepoint: false,
-                      default_run_seconds: rows.length === 0 ? 0 : 240,
-                      default_dwell_seconds: 0,
-                      distance_from_start_m: null,
-                      pickup_type: 'regular',
-                      drop_off_type: 'regular',
-                    },
-                  ])
-                  setAddId('')
-                }}
-              >
-                Add
-              </button>
-              <span className="muted small">
-                Only stop-type locations are listed — a pattern cannot call at a depot.
+              <div style={{ minWidth: 280 }}>
+                <Field label="Add a stop">
+                  <EntitySelect
+                    endpoint="/locations"
+                    params={stopParams}
+                    value={null}
+                    allowClear={false}
+                    placeholder="Search stops…"
+                    sublabelOf={(row) => row.code}
+                    onChange={async (id) => {
+                      if (id == null) return
+                      let name = `#${id}`
+                      let lat: number | null = null
+                      let lon: number | null = null
+                      try {
+                        const row = await api.get<Location>(`/locations/${id}`)
+                        name = row.name
+                        lat = row.lat
+                        lon = row.lon
+                      } catch {
+                        /* fall back to the id */
+                      }
+                      setRows((current) => [
+                        ...current,
+                        {
+                          sequence: current.length + 1,
+                          location_id: id,
+                          location_name: name,
+                          lat,
+                          lon,
+                          is_timepoint: false,
+                          default_run_seconds: current.length === 0 ? 0 : 240,
+                          default_dwell_seconds: 0,
+                          distance_from_start_m: null,
+                          pickup_type: 'regular',
+                          drop_off_type: 'regular',
+                        },
+                      ])
+                    }}
+                  />
+                </Field>
+              </div>
+              <span className="muted small" style={{ marginTop: 16 }}>
+                Only stop-type locations are searched — a pattern cannot call at a depot.
               </span>
             </div>
           )}

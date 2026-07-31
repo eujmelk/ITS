@@ -430,9 +430,14 @@ def get_timetable(
     pattern_id: int,
     calendar_id: int | None = None,
     timepoints_only: bool = False,
+    limit: int | None = Query(
+        default=40, ge=1, le=500, description="Trip columns per page"
+    ),
+    offset: int = Query(default=0, ge=0),
 ):
+    """Stops down, trips across. ``total_trips`` reports the unpaged count."""
     return build_timetable(
-        db, schedule_version_id, pattern_id, calendar_id, timepoints_only
+        db, schedule_version_id, pattern_id, calendar_id, timepoints_only, limit, offset
     )
 
 

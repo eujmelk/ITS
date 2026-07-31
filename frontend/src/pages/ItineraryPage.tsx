@@ -1,72 +1,242 @@
 import { useMemo, useState } from 'react'
-import type { Location, TransferEdge } from '../api/types'
+import { api, ApiError } from '../api/client'
+import type { Itinerary, ItineraryResponse, TransferEdge } from '../api/types'
 import { useList } from '../components/Crud'
-import { Empty, Field, PageHead, Panel, Spinner } from '../components/ui'
+import { EntitySelect } from '../components/EntitySelect'
+import {
+  Alert,
+  Empty,
+  Field,
+  PageHead,
+  Panel,
+  Spinner,
+  TimeInput,
+  money,
+  secondsToHhmm,
+} from '../components/ui'
 
-/**
- * Phase 11 (the journey search) is not implemented. What is implemented is the
- * part the v3 revision actually changed: the transfer graph the search will
- * walk. Showing it here makes the connectivity model inspectable before any
- * search exists to consume it.
- */
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export default function ItineraryPage() {
-  const { items: locations } = useList<Location>('/locations', { location_type: 'stop' })
-  const { items: edges, loading } = useList<TransferEdge>('/location-transfers/graph/edges')
-  const [focus, setFocus] = useState('')
+  const stopParams = useMemo(() => ({ location_type: 'stop' }), [])
+  const [from, setFrom] = useState<number | null>(null)
+  const [to, setTo] = useState<number | null>(null)
+  const [date, setDate] = useState(todayIso())
+  const [departAfter, setDepartAfter] = useState('08:00')
+  const [maxTransfers, setMaxTransfers] = useState(3)
+  const [minTransfer, setMinTransfer] = useState(0)
 
-  const names = useMemo(() => new Map(locations.map((l) => [l.id, l.name])), [locations])
-  const shown = focus
-    ? edges.filter(
-        (e) => String(e.from_location_id) === focus || String(e.to_location_id) === focus,
-      )
-    : edges
+  const [results, setResults] = useState<Itinerary[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState('')
+
+  async function run() {
+    setSearching(true)
+    setError('')
+    setResults(null)
+    try {
+      const response = await api.post<ItineraryResponse>('/itinerary/search', {
+        from_location_id: from,
+        to_location_id: to,
+        date,
+        depart_after: departAfter || null,
+        max_transfers: maxTransfers,
+        min_transfer_seconds: minTransfer * 60,
+        max_results: 5,
+      })
+      setResults(response.itineraries)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setSearching(false)
+    }
+  }
 
   return (
     <>
       <PageHead
         title="Itinerary finder"
-        intro="Journey search between two stops."
+        intro="Journey search on a real service date. Walking connections come only from stop areas and explicit transfers — never from how close two points look on a map."
       />
 
       <Panel title="Search">
-        <div className="alert info" style={{ marginBottom: 0 }}>
-          <strong>Not in this build.</strong>
-          <p style={{ margin: '6px 0 0' }}>
-            The search itself is phase 11. <code>POST /api/v1/itinerary/search</code>{' '}
-            is published with its final request and response models and returns{' '}
-            <code>501</code>.
-          </p>
+        <div className="toolbar">
+          <div style={{ minWidth: 220 }}>
+            <Field label="From">
+              <EntitySelect
+                endpoint="/locations"
+                params={stopParams}
+                value={from}
+                onChange={setFrom}
+                placeholder="Search stops…"
+              />
+            </Field>
+          </div>
+          <div style={{ minWidth: 220 }}>
+            <Field label="To">
+              <EntitySelect
+                endpoint="/locations"
+                params={stopParams}
+                value={to}
+                onChange={setTo}
+                placeholder="Search stops…"
+              />
+            </Field>
+          </div>
+          <Field label="Date">
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="Depart after">
+            <TimeInput value={departAfter} onChange={setDepartAfter} />
+          </Field>
+          <Field label="Max changes">
+            <input
+              type="number"
+              min={0}
+              max={6}
+              style={{ width: 70 }}
+              value={maxTransfers}
+              onChange={(e) => setMaxTransfers(Number(e.target.value))}
+            />
+          </Field>
+          <Field label="Change time (min)">
+            <input
+              type="number"
+              min={0}
+              style={{ width: 80 }}
+              value={minTransfer}
+              onChange={(e) => setMinTransfer(Number(e.target.value))}
+            />
+          </Field>
+          <button
+            className="primary"
+            style={{ marginTop: 14 }}
+            onClick={run}
+            disabled={!from || !to || from === to || searching}
+          >
+            {searching ? 'Searching…' : 'Find journeys'}
+          </button>
         </div>
+        <Alert kind="err">{error}</Alert>
       </Panel>
 
-      <Panel title="Transfer graph" hint="the walking edges the search will use">
-        <p className="small muted" style={{ marginTop: 0 }}>
-          Exactly two sources feed this: stops sharing a stop area, at that
-          area's cross time; and explicit pairwise transfer rows. Coordinate
-          proximity never creates an edge — two points can be 40 m apart with a
-          motorway between them.
-        </p>
+      {searching && <Spinner label="Scanning the day's connections…" />}
 
-        <div className="toolbar">
-          <Field label="Focus on one stop">
-            <select value={focus} onChange={(e) => setFocus(e.target.value)}>
-              <option value="">All stops</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <span className="spacer" />
-          <span className="muted small" style={{ marginTop: 18 }}>
-            {shown.length} edges
+      {results !== null && !searching && (
+        <Panel title="Results" hint={`${results.length} journeys`}>
+          {results.length === 0 ? (
+            <Empty>
+              No journey found. Check that trips run on this date's calendar,
+              and that the stops are connected by a line or a transfer.
+            </Empty>
+          ) : (
+            results.map((itinerary, index) => (
+              <ItineraryCard key={index} itinerary={itinerary} />
+            ))
+          )}
+        </Panel>
+      )}
+
+      <TransferGraphPanel />
+    </>
+  )
+}
+
+function ItineraryCard({ itinerary }: { itinerary: Itinerary }) {
+  const minutes = Math.round(itinerary.duration_seconds / 60)
+  return (
+    <div className="panel" style={{ marginBottom: 10 }}>
+      <div className="toolbar" style={{ marginBottom: 8 }}>
+        <strong style={{ fontSize: 15 }}>
+          {secondsToHhmm(itinerary.depart_seconds)} → {secondsToHhmm(itinerary.arrive_seconds)}
+        </strong>
+        <span className="tag grey">
+          {Math.floor(minutes / 60) ? `${Math.floor(minutes / 60)}h ` : ''}
+          {minutes % 60}m
+        </span>
+        <span className="tag grey">
+          {itinerary.transfer_count === 0
+            ? 'direct'
+            : `${itinerary.transfer_count} change${itinerary.transfer_count > 1 ? 's' : ''}`}
+        </span>
+        {itinerary.fare_price_cents != null && (
+          <span className="tag ok">
+            {money(itinerary.fare_price_cents, itinerary.fare_currency ?? 'EUR')}
           </span>
-        </div>
+        )}
+      </div>
 
-        {loading ? (
+      <table className="grid">
+        <tbody>
+          {itinerary.legs.map((leg, index) => (
+            <tr key={index}>
+              <td className="nowrap" style={{ width: 62 }}>
+                {secondsToHhmm(leg.depart_seconds)}
+              </td>
+              <td className="nowrap" style={{ width: 62 }}>
+                {secondsToHhmm(leg.arrive_seconds)}
+              </td>
+              <td style={{ width: 90 }}>
+                {leg.kind === 'ride' ? (
+                  <span className="tag">{leg.line_short_name ?? 'line'}</span>
+                ) : (
+                  <span className="tag grey">walk</span>
+                )}
+              </td>
+              <td>
+                {leg.from_location_name} → {leg.to_location_name}
+                {leg.kind === 'ride' ? (
+                  <span className="muted small">
+                    {leg.headsign ? ` towards ${leg.headsign}` : ''}
+                    {leg.intermediate_stop_count > 0
+                      ? ` · ${leg.intermediate_stop_count} stop${leg.intermediate_stop_count > 1 ? 's' : ''}`
+                      : ''}
+                  </span>
+                ) : (
+                  <span className="muted small">
+                    {' '}
+                    · {Math.round(leg.duration_seconds / 60)} min on foot
+                    {leg.transfer_source === 'stop_area' ? ' (same stop area)' : ''}
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function TransferGraphPanel() {
+  const [show, setShow] = useState(false)
+  const { items: edges, loading } = useList<TransferEdge>(
+    '/location-transfers/graph/edges',
+    undefined,
+    show,
+  )
+
+  return (
+    <Panel
+      title="Transfer graph"
+      hint="the walking edges the search uses"
+      actions={
+        <button className="small" onClick={() => setShow((v) => !v)}>
+          {show ? 'Hide' : 'Show'}
+        </button>
+      }
+    >
+      <p className="small muted" style={{ marginTop: 0 }}>
+        Exactly two sources: stops sharing a stop area, at that area's cross
+        time, and explicit pairwise transfer rows. If a change you expect is
+        not happening, it is almost always missing from here.
+      </p>
+      {show &&
+        (loading ? (
           <Spinner />
-        ) : shown.length === 0 ? (
+        ) : edges.length === 0 ? (
           <Empty>
             No walking connections defined. Group stops into a stop area, or add
             an explicit transfer, on the Locations page.
@@ -83,10 +253,10 @@ export default function ItineraryPage() {
                 </tr>
               </thead>
               <tbody>
-                {shown.map((edge, index) => (
+                {edges.map((edge, index) => (
                   <tr key={index}>
-                    <td>{names.get(edge.from_location_id) ?? edge.from_location_id}</td>
-                    <td>{names.get(edge.to_location_id) ?? edge.to_location_id}</td>
+                    <td>{edge.from_location_name ?? edge.from_location_id}</td>
+                    <td>{edge.to_location_name ?? edge.to_location_id}</td>
                     <td className="num">{Math.round(edge.walk_seconds / 60)} min</td>
                     <td>
                       <span className={`tag ${edge.source === 'explicit' ? '' : 'grey'}`}>
@@ -98,8 +268,7 @@ export default function ItineraryPage() {
               </tbody>
             </table>
           </div>
-        )}
-      </Panel>
-    </>
+        ))}
+    </Panel>
   )
 }

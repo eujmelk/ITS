@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.deps import DbSession, ReaderUser
 from app.models import (
+    Duty,
     Line,
     Location,
     LocationAttribute,
@@ -16,7 +17,9 @@ from app.models import (
     ScheduleVersion,
     StopArea,
 )
-from app.services.pdf import render_timetable_pdf, safe_filename
+from app.services import duties as duty_service
+from app.services.crud import get_or_404
+from app.services.pdf import render_duty_card_pdf, render_timetable_pdf, safe_filename
 from app.services.timetable import build_timetable
 from app.timeutil import format_time
 
@@ -63,6 +66,36 @@ def timetable_pdf(
         )
         + ".pdf"
     )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/pdf/duty-card",
+    summary="Printable duty card for one driver's day",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def duty_card_pdf(db: DbSession, _user: ReaderUser, duty_id: int):
+    """Sign-on, every piece, breaks and sign-off, with real location names."""
+    duty = get_or_404(db, Duty, duty_id, "Duty")
+    resolved = duty_service.resolve_duty(db, duty)
+    summary = duty_service.summarise(resolved)
+    issues = duty_service.validate_duty(db, duty)
+    board = db.get(ScheduleVersion, duty.schedule_version_id)
+
+    pdf = render_duty_card_pdf(
+        duty=duty,
+        resolved=resolved,
+        summary=summary,
+        issues=issues,
+        driver_name=duty.driver.display_name if duty.driver else None,
+        board_name=board.name if board else "",
+    )
+    filename = safe_filename("duty", duty.name, str(duty.date)) + ".pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",

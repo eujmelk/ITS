@@ -1,36 +1,38 @@
-"""Itinerary finder.
-
-Scope note: the search itself is phase 11 and is not implemented here. What
-*is* implemented is the part the v3 doc actually changed -- the transfer
-graph the search will walk (``app.services.transfers``), exposed at
-``GET /location-transfers/graph/edges`` so the edges can be inspected today.
-
-The search will consume exactly those edges: stop-area members at the area's
-default cross time, plus explicit ``location_transfers`` rows. It will not
-infer a connection from coordinate proximity.
-"""
+"""Itinerary finder (phase 11)."""
 
 from fastapi import APIRouter, HTTPException, status
 
 from app.deps import DbSession, ReaderUser
+from app.models import Location
 from app.schemas.itinerary import ItineraryRequest, ItineraryResponse
+from app.services import itinerary as itinerary_service
+from app.services.crud import get_or_404
 
 router = APIRouter(prefix="/itinerary", tags=["itinerary"])
-
-_NOT_YET = (
-    "The itinerary search is phase 11 and is not implemented in this build. "
-    "The transfer graph it will use is live -- see "
-    "GET /api/v1/location-transfers/graph/edges."
-)
 
 
 @router.post(
     "/search",
     response_model=ItineraryResponse,
-    summary="Find journeys between two locations (phase 11)",
+    summary="Find journeys between two locations",
 )
 def search(payload: ItineraryRequest, db: DbSession, _user: ReaderUser):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, _NOT_YET)
+    """Earliest-arrival journeys on a given service date.
+
+    Walking connections come only from stop areas and explicit transfer rows
+    (§1a) -- nothing is inferred from how close two coordinates look.
+    """
+    if payload.from_location_id == payload.to_location_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Origin and destination are the same location.",
+        )
+    get_or_404(db, Location, payload.from_location_id, "Location")
+    get_or_404(db, Location, payload.to_location_id, "Location")
+
+    return ItineraryResponse(
+        request=payload, itineraries=itinerary_service.search(db, payload)
+    )
 
 
 routers: list[APIRouter] = [router]

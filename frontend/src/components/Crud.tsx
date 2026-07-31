@@ -3,34 +3,60 @@ import type { ReactNode } from 'react'
 import { api, ApiError } from '../api/client'
 import type { Page } from '../api/client'
 import { useApp } from '../state/AppContext'
+import { EntitySelect, useDebounced } from './EntitySelect'
 import { Alert, CheckField, ConfirmButton, Empty, Field, Modal, Spinner } from './ui'
+
+export const PAGE_SIZES = [25, 50, 100, 250]
 
 export interface Column<T> {
   key: string
   label: string
   numeric?: boolean
+  /** Column name to sort by server-side. Omit to make the column unsortable. */
+  sortKey?: string
   render?: (row: T) => ReactNode
 }
 
 export interface FormField {
   name: string
   label: string
-  type?: 'text' | 'number' | 'textarea' | 'checkbox' | 'select' | 'date' | 'color'
+  type?:
+    | 'text'
+    | 'number'
+    | 'textarea'
+    | 'checkbox'
+    | 'select'
+    | 'date'
+    | 'color'
+    /** Server-backed searchable picker; requires `endpoint`. */
+    | 'entity'
   options?: { value: any; label: string }[]
+  /** For type 'entity': the collection to search, e.g. '/locations'. */
+  endpoint?: string
+  /** For type 'entity': extra query filters, e.g. `{ location_type: 'stop' }`. */
+  entityParams?: Record<string, any>
   required?: boolean
   full?: boolean
   hint?: string
-  /** Hidden on create, shown on edit, or vice versa. */
   only?: 'create' | 'edit'
   step?: string
 }
 
-/** Shared list-fetching hook, so every page handles loading and errors alike. */
+/**
+ * Load a whole collection.
+ *
+ * Only for genuinely small reference sets — modes, calendars on one board,
+ * a line's patterns. Anything that grows with the size of the network wants
+ * `CrudTable` (paged) or `EntitySelect` (searched) instead. `truncated` is
+ * exposed so a caller can never mistake a capped list for a complete one.
+ */
 export function useList<T>(path: string, params?: Record<string, any>, enabled = true) {
   const [items, setItems] = useState<T[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState('')
   const key = JSON.stringify(params ?? {})
+  const cap = (params?.limit as number) ?? 500
 
   const reload = useCallback(async () => {
     if (!enabled) {
@@ -41,11 +67,14 @@ export function useList<T>(path: string, params?: Record<string, any>, enabled =
     setLoading(true)
     setError('')
     try {
-      const data = await api.get<Page<T> | T[]>(path, { limit: 1000, ...(params ?? {}) })
-      setItems(Array.isArray(data) ? data : data.items)
+      const data = await api.get<Page<T> | T[]>(path, { limit: cap, ...(params ?? {}) })
+      const rows = Array.isArray(data) ? data : data.items
+      setItems(rows)
+      setTotal(Array.isArray(data) ? rows.length : data.total)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
       setItems([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
@@ -58,12 +87,12 @@ export function useList<T>(path: string, params?: Record<string, any>, enabled =
     reload()
   }, [reload])
 
-  return { items, loading, error, reload, setItems }
+  return { items, total, truncated: total > items.length, loading, error, reload, setItems }
 }
 
 function emptyValue(field: FormField) {
   if (field.type === 'checkbox') return false
-  if (field.type === 'number') return ''
+  if (field.type === 'entity') return null
   return ''
 }
 
@@ -98,7 +127,15 @@ export function FormFields({
           const isFull = field.full || field.type === 'textarea'
           return (
             <Field key={field.name} label={field.label} full={isFull} hint={field.hint}>
-              {field.type === 'textarea' ? (
+              {field.type === 'entity' ? (
+                <EntitySelect
+                  endpoint={field.endpoint!}
+                  params={field.entityParams}
+                  value={value === '' || value === undefined ? null : Number(value)}
+                  onChange={(id) => setValue(field.name, id)}
+                  allowClear={!field.required}
+                />
+              ) : field.type === 'textarea' ? (
                 <textarea
                   value={value ?? ''}
                   onChange={(e) => setValue(field.name, e.target.value)}
@@ -140,18 +177,22 @@ export function FormFields({
 export function cleanPayload(fields: FormField[], values: Record<string, any>) {
   const out: Record<string, any> = {}
   for (const field of fields) {
-    let value = values[field.name]
+    const value = values[field.name]
     if (field.type === 'checkbox') {
       out[field.name] = !!value
       continue
     }
-    if (value === '' || value === undefined) {
+    if (value === '' || value === undefined || value === null) {
       out[field.name] = null
       continue
     }
     if (field.type === 'number') {
       const num = Number(value)
       out[field.name] = Number.isNaN(num) ? null : num
+      continue
+    }
+    if (field.type === 'entity') {
+      out[field.name] = Number(value)
       continue
     }
     if (field.type === 'select') {
@@ -162,6 +203,71 @@ export function cleanPayload(fields: FormField[], values: Record<string, any>) {
     out[field.name] = value
   }
   return out
+}
+
+export function Pager({
+  offset,
+  limit,
+  total,
+  loading,
+  onOffset,
+  onLimit,
+}: {
+  offset: number
+  limit: number
+  total: number
+  loading?: boolean
+  onOffset: (next: number) => void
+  onLimit: (next: number) => void
+}) {
+  const from = total === 0 ? 0 : offset + 1
+  const to = Math.min(offset + limit, total)
+  const canPrev = offset > 0
+  const canNext = offset + limit < total
+
+  return (
+    <div className="pager">
+      <span className="muted small">
+        {loading ? 'Loading…' : `Showing ${from.toLocaleString()}–${to.toLocaleString()} of ${total.toLocaleString()}`}
+      </span>
+      <span className="spacer" />
+      <select
+        value={limit}
+        onChange={(e) => {
+          onLimit(Number(e.target.value))
+          onOffset(0)
+        }}
+        title="Rows per page"
+      >
+        {PAGE_SIZES.map((size) => (
+          <option key={size} value={size}>
+            {size} / page
+          </option>
+        ))}
+      </select>
+      <button className="small" disabled={!canPrev} onClick={() => onOffset(0)} title="First page">
+        «
+      </button>
+      <button
+        className="small"
+        disabled={!canPrev}
+        onClick={() => onOffset(Math.max(0, offset - limit))}
+      >
+        ‹ Prev
+      </button>
+      <button className="small" disabled={!canNext} onClick={() => onOffset(offset + limit)}>
+        Next ›
+      </button>
+      <button
+        className="small"
+        disabled={!canNext}
+        onClick={() => onOffset(Math.max(0, (Math.ceil(total / limit) - 1) * limit))}
+        title="Last page"
+      >
+        »
+      </button>
+    </div>
+  )
 }
 
 export function CrudTable<T extends Record<string, any>>({
@@ -179,6 +285,7 @@ export function CrudTable<T extends Record<string, any>>({
   idKey = 'id',
   wideModal,
   editable = true,
+  defaultPageSize = 50,
 }: {
   endpoint: string
   columns: Column<T>[]
@@ -194,14 +301,54 @@ export function CrudTable<T extends Record<string, any>>({
   idKey?: string
   wideModal?: boolean
   editable?: boolean
+  defaultPageSize?: number
 }) {
   const { canEdit } = useApp()
   const [query, setQuery] = useState('')
-  const listParams = useMemo(
-    () => ({ ...(params ?? {}), ...(query ? { q: query } : {}) }),
-    [params, query],
-  )
-  const { items, loading, error, reload } = useList<T>(endpoint, listParams)
+  const debouncedQuery = useDebounced(query)
+  const [limit, setLimit] = useState(defaultPageSize)
+  const [offset, setOffset] = useState(0)
+  const [sort, setSort] = useState<string | null>(null)
+  const [order, setOrder] = useState<'asc' | 'desc'>('asc')
+
+  const [items, setItems] = useState<T[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const paramKey = JSON.stringify(params ?? {})
+
+  // A new search must not leave you on page 9 of the old result set.
+  useEffect(() => {
+    setOffset(0)
+  }, [debouncedQuery, paramKey])
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await api.get<Page<T>>(endpoint, {
+        ...(params ?? {}),
+        ...(debouncedQuery ? { q: debouncedQuery } : {}),
+        ...(sort ? { sort, order } : {}),
+        limit,
+        offset,
+      })
+      setItems(data.items)
+      setTotal(data.total)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+      setItems([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endpoint, paramKey, debouncedQuery, sort, order, limit, offset])
+
+  useEffect(() => {
+    reload()
+  }, [reload])
 
   const [editing, setEditing] = useState<T | null | 'new'>(null)
   const [values, setValues] = useState<Record<string, any>>({})
@@ -210,6 +357,17 @@ export function CrudTable<T extends Record<string, any>>({
 
   const allowEdit = canEdit && editable
   const mode: 'create' | 'edit' = editing === 'new' ? 'create' : 'edit'
+
+  function toggleSort(column: Column<T>) {
+    const key = column.sortKey ?? column.key
+    if (sort === key) {
+      setOrder((o) => (o === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSort(key)
+      setOrder('asc')
+    }
+    setOffset(0)
+  }
 
   function openNew() {
     const initial: Record<string, any> = {}
@@ -251,7 +409,10 @@ export function CrudTable<T extends Record<string, any>>({
   async function remove(row: T) {
     try {
       await api.del(`${endpoint}/${(row as any)[idKey]}`)
-      await reload()
+      // Deleting the only row on the last page would otherwise strand you on
+      // an empty view.
+      if (items.length === 1 && offset > 0) setOffset(Math.max(0, offset - limit))
+      else await reload()
       onChanged?.()
     } catch (e) {
       window.alert(e instanceof ApiError ? e.message : String(e))
@@ -271,7 +432,6 @@ export function CrudTable<T extends Record<string, any>>({
         )}
         {toolbarExtra}
         <span className="spacer" />
-        <span className="muted small">{items.length} rows</span>
         {allowEdit && (
           <button className="primary" onClick={openNew}>
             New {entityName.toLowerCase()}
@@ -281,20 +441,35 @@ export function CrudTable<T extends Record<string, any>>({
 
       <Alert kind="err">{error}</Alert>
 
-      {loading ? (
+      {loading && items.length === 0 ? (
         <Spinner />
       ) : items.length === 0 ? (
-        <Empty>No {entityName.toLowerCase()} records yet.</Empty>
+        <Empty>
+          {debouncedQuery
+            ? `No ${entityName.toLowerCase()} matches “${debouncedQuery}”.`
+            : `No ${entityName.toLowerCase()} records yet.`}
+        </Empty>
       ) : (
         <div className="table-wrap">
           <table className="grid">
             <thead>
               <tr>
-                {columns.map((col) => (
-                  <th key={col.key} className={col.numeric ? 'num' : undefined}>
-                    {col.label}
-                  </th>
-                ))}
+                {columns.map((col) => {
+                  const key = col.sortKey ?? col.key
+                  const sortable = col.sortKey !== undefined
+                  const active = sort === key
+                  return (
+                    <th
+                      key={col.key}
+                      className={`${col.numeric ? 'num' : ''}${sortable ? ' sortable' : ''}`}
+                      onClick={sortable ? () => toggleSort(col) : undefined}
+                      title={sortable ? 'Sort by this column' : undefined}
+                    >
+                      {col.label}
+                      {active && <span className="sort-arrow">{order === 'asc' ? ' ▲' : ' ▼'}</span>}
+                    </th>
+                  )
+                })}
                 <th />
               </tr>
             </thead>
@@ -326,6 +501,15 @@ export function CrudTable<T extends Record<string, any>>({
           </table>
         </div>
       )}
+
+      <Pager
+        offset={offset}
+        limit={limit}
+        total={total}
+        loading={loading}
+        onOffset={setOffset}
+        onLimit={setLimit}
+      />
 
       {editing && (
         <Modal

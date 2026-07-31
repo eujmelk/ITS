@@ -1,10 +1,11 @@
 """Fleet: vehicle types, vehicles, and location-aware interlined blocks."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.deps import DbSession, ReaderUser, require_planner
+from app.timeutil import OptionalTimeStr
 from app.models import (
     Block,
     BlockPiece,
@@ -16,7 +17,7 @@ from app.models import (
     Vehicle,
     VehicleType,
 )
-from app.schemas.common import ValidationReport
+from app.schemas.common import Page, ValidationReport
 from app.schemas.fleet import (
     BlockCreate,
     BlockDetail,
@@ -290,28 +291,57 @@ tools_router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 @tools_router.get(
     "/unassigned-trips",
-    response_model=list[UnassignedTrip],
+    response_model=Page[UnassignedTrip],
     summary="Trips on a board not yet in any block",
 )
-def unassigned_trips(db: DbSession, _user: ReaderUser, schedule_version_id: int):
+def unassigned_trips(
+    db: DbSession,
+    _user: ReaderUser,
+    schedule_version_id: int,
+    line_id: int | None = None,
+    connects_from_location_id: int | None = Query(
+        default=None,
+        description="Only trips starting here -- where the block currently is.",
+    ),
+    not_before: OptionalTimeStr = Query(
+        default=None, description="Only trips departing at or after this time."
+    ),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+):
     """The work list for block building, with each trip's real endpoints.
 
-    Sorted by departure time so the next trip a bus could pick up is easy to
-    spot.
+    The "connects here" filter runs in the database, not the browser. A whole
+    board's unassigned trips can be thousands of rows, and the shortlist a
+    scheduler actually wants -- trips that start where the bus already is, no
+    earlier than it gets there -- is usually a handful of them.
     """
-    rows = db.execute(
+    stmt = (
         select(Trip.id, Line.short_name, Trip.headsign, Pattern.direction, Trip.pattern_id)
         .join(Pattern, Trip.pattern_id == Pattern.id)
         .join(Line, Pattern.line_id == Line.id)
         .where(Trip.schedule_version_id == schedule_version_id)
         .where(Trip.block_id.is_(None))
-    ).all()
+    )
+    if line_id is not None:
+        stmt = stmt.where(Pattern.line_id == line_id)
 
+    rows = db.execute(stmt).all()
     ends = block_service.trip_endpoints(db, [r[0] for r in rows])
 
     result = []
     for trip_id, short_name, headsign, direction, pattern_id in rows:
         endpoint = ends.get(trip_id)
+        if connects_from_location_id is not None and (
+            endpoint is None or endpoint.from_location_id != connects_from_location_id
+        ):
+            continue
+        if not_before is not None and (
+            endpoint is None
+            or endpoint.start_seconds is None
+            or endpoint.start_seconds < not_before
+        ):
+            continue
         result.append(
             UnassignedTrip(
                 trip_id=trip_id,
@@ -327,8 +357,14 @@ def unassigned_trips(db: DbSession, _user: ReaderUser, schedule_version_id: int)
                 end_seconds=endpoint.end_seconds if endpoint else None,
             )
         )
+
     result.sort(key=lambda t: (t.start_seconds is None, t.start_seconds or 0, t.trip_id))
-    return result
+    return Page(
+        items=result[offset : offset + limit],
+        total=len(result),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @tools_router.get(

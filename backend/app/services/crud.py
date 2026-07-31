@@ -176,9 +176,13 @@ def crud_router(
         request: Request,
         db: DbSession,
         _user: ReaderUser,
-        limit: int = Query(default=200, ge=1, le=MAX_LIMIT),
+        limit: int = Query(default=50, ge=1, le=MAX_LIMIT),
         offset: int = Query(default=0, ge=0),
         q: str | None = Query(default=None, description="Free-text search"),
+        sort: str | None = Query(
+            default=None, description="Column to sort by; unknown names are ignored"
+        ),
+        order: str = Query(default="asc", pattern="^(asc|desc)$"),
     ) -> Page:
         stmt = select(model)
         stmt = _apply_filters(stmt, request)
@@ -192,8 +196,17 @@ def crud_router(
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = db.scalar(count_stmt) or 0
 
-        for field in order_by:
-            stmt = stmt.order_by(getattr(model, field))
+        # `total` is the count *before* limit/offset, so the client can tell
+        # "50 of 4,312" from "50 of 50" and page rather than silently see a
+        # truncated list.
+        if sort and sort in model.__table__.c:
+            column = getattr(model, sort)
+            stmt = stmt.order_by(column.desc() if order == "desc" else column.asc())
+            # Ties would otherwise page unstably, repeating or skipping rows.
+            stmt = stmt.order_by(getattr(model, pk_attr))
+        else:
+            for field in order_by:
+                stmt = stmt.order_by(getattr(model, field))
 
         if options:
             # Eager-load relationships the serializer touches, so listing N

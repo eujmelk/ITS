@@ -248,5 +248,11 @@ class Timetable(BaseModel):
     direction: int
     calendar_id: int | None = None
     calendar_name: str | None = None
+    #: The trips on this page, left to right in departure order.
     trip_ids: list[int]
     rows: list[TimetableRow]
+    #: Trips matching the filter in total, so the client can page rather than
+    #: quietly show a slice as if it were everything.
+    total_trips: int = 0
+    limit: int | None = None
+    offset: int = 0

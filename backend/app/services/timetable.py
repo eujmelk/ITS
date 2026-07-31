@@ -7,7 +7,7 @@ timetable and the on-screen one can never disagree.
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -29,7 +29,16 @@ def build_timetable(
     pattern_id: int,
     calendar_id: int | None = None,
     timepoints_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> Timetable:
+    """Build the grid, optionally for one page of trip columns.
+
+    A busy urban pattern can carry several hundred trips a day. Rendering that
+    as one table is ~300 columns x 40 rows of DOM, so the columns are paged:
+    trips are ordered by departure first, then sliced, and only the sliced
+    trips' stop times are fetched.
+    """
     pattern = db.get(Pattern, pattern_id)
     if pattern is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Pattern {pattern_id} not found")
@@ -78,22 +87,38 @@ def build_timetable(
     if calendar_id is not None:
         trip_stmt = trip_stmt.where(Trip.calendar_id == calendar_id)
     trip_ids = list(db.scalars(trip_stmt).all())
+    total_trips = len(trip_ids)
 
-    times: dict[tuple[int, int], int] = {}
+    # Order the columns before slicing them. Only the first departure of each
+    # trip is needed for that, which is one cheap grouped query rather than
+    # every stop time on the pattern.
     first_departure: dict[int, int] = {}
     if trip_ids:
-        for trip_id, pattern_stop_id, departure in db.execute(
-            select(StopTime.trip_id, StopTime.pattern_stop_id, StopTime.departure_seconds)
-            .where(StopTime.trip_id.in_(trip_ids))
-            .order_by(StopTime.trip_id, StopTime.departure_seconds)
-        ).all():
-            times[(trip_id, pattern_stop_id)] = departure
-            if trip_id not in first_departure:
-                first_departure[trip_id] = departure
+        first_departure = {
+            trip_id: departure
+            for trip_id, departure in db.execute(
+                select(StopTime.trip_id, func.min(StopTime.departure_seconds))
+                .where(StopTime.trip_id.in_(trip_ids))
+                .group_by(StopTime.trip_id)
+            ).all()
+        }
 
     # Columns run left to right in departure order; trips with no stop times
     # sort last rather than disappearing, so the gap is visible.
     trip_ids.sort(key=lambda t: (first_departure.get(t) is None, first_departure.get(t, 0), t))
+
+    if limit is not None:
+        trip_ids = trip_ids[offset : offset + limit]
+    elif offset:
+        trip_ids = trip_ids[offset:]
+
+    times: dict[tuple[int, int], int] = {}
+    if trip_ids:
+        for trip_id, pattern_stop_id, departure in db.execute(
+            select(StopTime.trip_id, StopTime.pattern_stop_id, StopTime.departure_seconds)
+            .where(StopTime.trip_id.in_(trip_ids))
+        ).all():
+            times[(trip_id, pattern_stop_id)] = departure
 
     rows = [
         TimetableRow(
@@ -126,4 +151,7 @@ def build_timetable(
         calendar_name=calendar_name,
         trip_ids=trip_ids,
         rows=rows,
+        total_trips=total_trips,
+        limit=limit,
+        offset=offset,
     )

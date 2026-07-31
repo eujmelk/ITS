@@ -22,12 +22,13 @@ export default function BoardsPage() {
   const { items: boards, reload } = useList<ScheduleVersion>('/schedule-versions')
 
   const columns: Column<ScheduleVersion>[] = [
-    { key: 'name', label: 'Board' },
-    { key: 'start_date', label: 'From' },
-    { key: 'end_date', label: 'To' },
+    { key: 'name', label: 'Board', sortKey: 'name' },
+    { key: 'start_date', label: 'From', sortKey: 'start_date' },
+    { key: 'end_date', label: 'To', sortKey: 'end_date' },
     {
       key: 'status',
       label: 'Status',
+      sortKey: 'status',
       render: (row) => (
         <span className={`tag ${row.status === 'active' ? 'ok' : row.status === 'archived' ? 'grey' : ''}`}>
           {row.status}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import type { Calendar, Line, Pattern, ScheduleVersion, Timetable, Trip } from '../api/types'
-import { useList } from '../components/Crud'
+import { Pager, useList } from '../components/Crud'
+import { EntitySelect } from '../components/EntitySelect'
 import {
   Alert,
   Empty,
@@ -18,7 +19,10 @@ import { useApp } from '../state/AppContext'
 export default function SchedulePage() {
   const { canEdit } = useApp()
   const { items: boards } = useList<ScheduleVersion>('/schedule-versions')
-  const { items: lines } = useList<Line>('/lines')
+  // Only needed to preselect something sensible; the picker below searches
+  // the server rather than reading this list.
+  const firstLineParams = useMemo(() => ({ limit: 1 }), [])
+  const { items: lines } = useList<Line>('/lines', firstLineParams)
 
   const [boardId, setBoardId] = useState<string>('')
   const [lineId, setLineId] = useState<string>('')
@@ -55,6 +59,10 @@ export default function SchedulePage() {
   const [generateOpen, setGenerateOpen] = useState(false)
   const [editingTrip, setEditingTrip] = useState<number | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<number[]>([])
+  // Trip columns are paged. A high-frequency urban pattern runs 250+ trips a
+  // day, and one table that wide is unreadable as well as slow.
+  const [columnLimit, setColumnLimit] = useState(40)
+  const [columnOffset, setColumnOffset] = useState(0)
 
   async function load() {
     if (!boardId || !patternId) {
@@ -70,6 +78,8 @@ export default function SchedulePage() {
           pattern_id: patternId,
           calendar_id: calendarId || undefined,
           timepoints_only: timepointsOnly,
+          limit: columnLimit,
+          offset: columnOffset,
         }),
       )
       setSelectedTrips([])
@@ -81,10 +91,15 @@ export default function SchedulePage() {
     }
   }
 
+  // Changing what is shown must reset to the first page of columns.
+  useEffect(() => {
+    setColumnOffset(0)
+  }, [boardId, patternId, calendarId])
+
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId, patternId, calendarId, timepointsOnly])
+  }, [boardId, patternId, calendarId, timepointsOnly, columnLimit, columnOffset])
 
   async function deleteSelected() {
     if (!selectedTrips.length) return
@@ -151,20 +166,16 @@ export default function SchedulePage() {
             </select>
           </Field>
           <Field label="Line">
-            <select
-              value={lineId}
-              onChange={(e) => {
-                setLineId(e.target.value)
+            <EntitySelect
+              endpoint="/lines"
+              value={lineId ? Number(lineId) : null}
+              onChange={(id) => {
+                setLineId(id ? String(id) : '')
                 setPatternId('')
               }}
-            >
-              <option value="">— choose —</option>
-              {lines.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.short_name} {l.long_name ? `— ${l.long_name}` : ''}
-                </option>
-              ))}
-            </select>
+              labelOf={(row) => `${row.short_name}${row.long_name ? ` — ${row.long_name}` : ''}`}
+              placeholder="Search lines…"
+            />
           </Field>
           <Field label="Pattern">
             <select value={patternId} onChange={(e) => setPatternId(e.target.value)}>
@@ -205,7 +216,11 @@ export default function SchedulePage() {
             ? `${timetable.line_short_name} — ${timetable.pattern_name}`
             : 'Timetable'
         }
-        hint={timetable ? `${timetable.trip_ids.length} trips` : undefined}
+        hint={
+          timetable
+            ? `${timetable.total_trips.toLocaleString()} trips on this pattern`
+            : undefined
+        }
         actions={
           canEdit && selectedTrips.length > 0 ? (
             <button className="danger small" onClick={deleteSelected}>
@@ -282,6 +297,17 @@ export default function SchedulePage() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {timetable && timetable.total_trips > 0 && (
+          <Pager
+            offset={timetable.offset}
+            limit={columnLimit}
+            total={timetable.total_trips}
+            loading={loading}
+            onOffset={setColumnOffset}
+            onLimit={setColumnLimit}
+          />
         )}
       </Panel>
 

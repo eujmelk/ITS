@@ -130,8 +130,50 @@ table.grid tbody tr:hover { background: #fafbfc; }
 table.grid td.num, table.grid th.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.grid td.actions { text-align: right; white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
+/* A table containing EntitySelects cannot clip them, or the dropdown is cut
+   off by the scroll container. Used where the columns are known to fit. */
+.table-wrap.allow-overflow { overflow: visible; }
+
+table.grid th.sortable { cursor: pointer; user-select: none; }
+table.grid th.sortable:hover { color: var(--brand); }
+.sort-arrow { color: var(--brand); }
 
 .empty { padding: 22px; text-align: center; color: var(--muted); }
+
+/* ----------------------------------------------------------- pagination */
+
+.pager {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--line);
+}
+.pager .spacer { flex: 1; }
+.pager select { width: auto; }
+
+/* -------------------------------------------------------- entity select */
+
+.entity-select { position: relative; }
+.entity-select-control { position: relative; display: flex; align-items: center; }
+.entity-select-control input { padding-right: 24px; }
+.entity-select-clear {
+  position: absolute; right: 3px; border: none; background: none;
+  color: var(--muted); padding: 2px 5px; line-height: 1; cursor: pointer;
+  font-size: 12px;
+}
+.entity-select-clear:hover { color: var(--err); }
+.entity-select-menu {
+  position: absolute; z-index: 1200; top: 100%; left: 0; right: 0;
+  background: #fff; border: 1px solid var(--line); border-radius: 4px;
+  box-shadow: 0 8px 22px rgba(0,0,0,.14);
+  max-height: 260px; overflow-y: auto; margin-top: 2px;
+  min-width: 240px;
+}
+.entity-select-option { padding: 5px 9px; cursor: pointer; font-size: 13px; }
+.entity-select-option.active { background: var(--brand-soft); }
+.entity-select-sub { font-size: 11px; color: var(--muted); }
+.entity-select-note { padding: 6px 9px; font-size: 12px; color: var(--muted); }
+
+/* Inside a table cell the menu must escape the row's overflow. */
+td .entity-select-menu { min-width: 260px; }
 
 /* ----------------------------------------------------------------- misc */
 
@@ -181,9 +223,15 @@ table.grid td.actions { text-align: right; white-space: nowrap; }
 .login-card h1 { margin: 0 0 4px; font-size: 18px; }
 .login-card p.sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
 
+.map-shell { position: relative; }
 .map { height: 420px; border-radius: var(--radius); border: 1px solid var(--line); }
 .map-small { height: 260px; }
 .leaflet-container { font: inherit; }
+.map-note {
+  position: absolute; left: 8px; bottom: 8px; z-index: 500;
+  background: rgba(255,255,255,.94); border: 1px solid var(--line);
+  border-radius: 4px; padding: 3px 8px; font-size: 11.5px; color: var(--muted);
+}
 
 /* Timetable grid: stop names stay visible while trips scroll sideways. */
 .timetable { overflow-x: auto; }

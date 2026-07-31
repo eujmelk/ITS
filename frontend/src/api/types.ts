@@ -321,6 +321,85 @@ export interface Driver {
   base_location_name: string | null
 }
 
+export type DutyPieceType = 'block_segment' | 'break' | 'sign_on' | 'sign_off'
+
+export interface DutyPiece {
+  id?: number
+  duty_id?: number
+  sequence: number
+  piece_type: DutyPieceType
+  block_id: number | null
+  from_block_piece_sequence: number | null
+  to_block_piece_sequence: number | null
+  location_id: number | null
+  start_seconds: string | null
+  end_seconds: string | null
+  notes: string | null
+  block_name?: string | null
+  location_name?: string | null
+  effective_start_seconds?: string | null
+  effective_end_seconds?: string | null
+  covers_piece_count?: number
+}
+
+export interface Duty {
+  id: number
+  name: string
+  date: string
+  schedule_version_id: number
+  driver_id: number | null
+  notes: string | null
+  driver_name: string | null
+  piece_count: number
+  start_seconds: string | null
+  end_seconds: string | null
+  working_minutes: number
+  driving_minutes: number
+  break_minutes: number
+  pieces?: DutyPiece[]
+  validation?: ValidationReport | null
+}
+
+export interface BlockCoverage {
+  block_id: number
+  block_name: string
+  total_pieces: number
+  covered_sequences: number[]
+  uncovered_sequences: number[]
+  fully_covered: boolean
+}
+
+export interface ItineraryLeg {
+  kind: 'ride' | 'walk'
+  from_location_id: number
+  from_location_name: string
+  to_location_id: number
+  to_location_name: string
+  depart_seconds: string | null
+  arrive_seconds: string | null
+  duration_seconds: number
+  trip_id: number | null
+  line_id: number | null
+  line_short_name: string | null
+  headsign: string | null
+  intermediate_stop_count: number
+  transfer_source: string | null
+}
+
+export interface Itinerary {
+  depart_seconds: string | null
+  arrive_seconds: string | null
+  duration_seconds: number
+  transfer_count: number
+  legs: ItineraryLeg[]
+  fare_price_cents: number | null
+  fare_currency: string | null
+}
+
+export interface ItineraryResponse {
+  itineraries: Itinerary[]
+}
+
 export interface Parameter {
   key: string
   value: string

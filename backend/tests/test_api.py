@@ -122,8 +122,12 @@ def test_stop_area_membership_creates_transfer_edges(client, auth):
     # Membership is flagged per stop, but the edge exists in both directions.
     assert (state["stops"][0], state["stops"][1]) in pairs
     assert (state["stops"][1], state["stops"][0]) in pairs
-    assert pairs[(state["stops"][0], state["stops"][1])]["walk_seconds"] == 150
-    assert pairs[(state["stops"][0], state["stops"][1])]["source"] == "stop_area"
+    edge = pairs[(state["stops"][0], state["stops"][1])]
+    assert edge["walk_seconds"] == 150
+    assert edge["source"] == "stop_area"
+    # Names travel with the edge so a client need not hold the whole table.
+    assert edge["from_location_name"] == "Alpha"
+    assert edge["to_location_name"] == "Bravo"
 
 
 def test_depot_cannot_join_a_stop_area(client, auth):
@@ -314,9 +318,29 @@ def test_timetable_grid(client, auth):
     ).json()
     assert len(grid["rows"]) == 3
     assert len(grid["trip_ids"]) == 3
+    assert grid["total_trips"] == 3
     # Columns are ordered by departure, so the shifted trip is still last.
     assert grid["rows"][0]["cells"][0]["departure_seconds"] == "06:00:30"
     assert grid["rows"][0]["cells"][2]["departure_seconds"] == "07:10:30"
+
+
+def test_timetable_columns_page_without_losing_the_ordering(client, auth):
+    """Ordering by departure happens before the slice, not after it."""
+    base = {"schedule_version_id": state["board"], "pattern_id": state["pattern"]}
+    first = client.get(
+        f"{API}/timetables", params={**base, "limit": 2, "offset": 0}, headers=auth
+    ).json()
+    second = client.get(
+        f"{API}/timetables", params={**base, "limit": 2, "offset": 2}, headers=auth
+    ).json()
+
+    assert first["total_trips"] == 3
+    assert len(first["trip_ids"]) == 2
+    assert len(second["trip_ids"]) == 1
+    assert not set(first["trip_ids"]) & set(second["trip_ids"])
+    # Earliest two on page one, the shifted 07:10 trip alone on page two.
+    assert first["rows"][0]["cells"][0]["departure_seconds"] == "06:00:30"
+    assert second["rows"][0]["cells"][0]["departure_seconds"] == "07:10:30"
 
 
 def test_fare_matrix_and_quote(client, auth):
@@ -461,14 +485,78 @@ def test_a_trip_cannot_belong_to_two_blocks(client, auth):
 
 
 def test_unassigned_trips_excludes_blocked_ones(client, auth):
-    rows = client.get(
+    page = client.get(
         f"{API}/fleet/unassigned-trips",
         params={"schedule_version_id": state["board"]},
         headers=auth,
     ).json()
-    assigned = {state["trips"][0], state["trips"][1]}
-    assert not assigned & {row["trip_id"] for row in rows}
-    assert state["trips"][2] in {row["trip_id"] for row in rows}
+    ids = {row["trip_id"] for row in page["items"]}
+    assert not {state["trips"][0], state["trips"][1]} & ids
+    assert state["trips"][2] in ids
+    assert page["total"] == len(page["items"])
+
+
+def test_unassigned_trips_connects_filter_runs_server_side(client, auth):
+    """The shortlist a scheduler wants, computed in the database."""
+    connecting = client.get(
+        f"{API}/fleet/unassigned-trips",
+        params={
+            "schedule_version_id": state["board"],
+            "connects_from_location_id": state["stops"][0],
+        },
+        headers=auth,
+    ).json()
+    # Trip 3 starts at Alpha like the others, so it qualifies.
+    assert state["trips"][2] in {r["trip_id"] for r in connecting["items"]}
+
+    elsewhere = client.get(
+        f"{API}/fleet/unassigned-trips",
+        params={
+            "schedule_version_id": state["board"],
+            "connects_from_location_id": state["stops"][2],
+        },
+        headers=auth,
+    ).json()
+    assert elsewhere["total"] == 0
+
+    # Trip 3 was shifted to 07:10:30, so a later cut-off excludes it.
+    late = client.get(
+        f"{API}/fleet/unassigned-trips",
+        params={"schedule_version_id": state["board"], "not_before": "08:00"},
+        headers=auth,
+    ).json()
+    assert late["total"] == 0
+
+
+def test_listing_reports_the_unpaged_total(client, auth):
+    """A truncated page must never look like the whole collection."""
+    page = client.get(f"{API}/locations", params={"limit": 2}, headers=auth).json()
+    assert len(page["items"]) == 2
+    assert page["total"] >= 4  # depot + three stops
+    assert page["limit"] == 2
+
+    second = client.get(
+        f"{API}/locations", params={"limit": 2, "offset": 2}, headers=auth
+    ).json()
+    assert {r["id"] for r in page["items"]} & {r["id"] for r in second["items"]} == set()
+
+
+def test_sorting_is_applied_server_side(client, auth):
+    ascending = client.get(
+        f"{API}/locations", params={"sort": "name", "order": "asc"}, headers=auth
+    ).json()["items"]
+    descending = client.get(
+        f"{API}/locations", params={"sort": "name", "order": "desc"}, headers=auth
+    ).json()["items"]
+    names = [r["name"] for r in ascending]
+    assert names == sorted(names)
+    assert [r["name"] for r in descending] == sorted(names, reverse=True)
+
+    # An unknown column is ignored rather than raising.
+    assert (
+        client.get(f"{API}/locations", params={"sort": "nonsense"}, headers=auth).status_code
+        == 200
+    )
 
 
 def test_a_deadhead_piece_needs_its_endpoints(client, auth):
@@ -499,23 +587,6 @@ def test_csv_export(client, auth):
     )
     assert response.status_code == 200
     assert "trip_id,line,pattern" in response.text
-
-
-def test_roster_and_itinerary_are_declared_but_not_implemented(client, auth):
-    """Contract published, handlers pending -- 501, not an empty 200."""
-    duties = client.get(f"{API}/duties", headers=auth)
-    assert duties.status_code == 501
-
-    search = client.post(
-        f"{API}/itinerary/search",
-        json={
-            "from_location_id": state["stops"][0],
-            "to_location_id": state["stops"][2],
-            "date": dt.date.today().isoformat(),
-        },
-        headers=auth,
-    )
-    assert search.status_code == 501
 
 
 def test_drivers_are_live(client, auth):

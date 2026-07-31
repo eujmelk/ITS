@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.enums import (
@@ -38,42 +38,53 @@ def trip_endpoints(db: Session, trip_ids: list[int]) -> dict[int, Endpoints]:
 
     A trip piece never duplicates its own times or locations; they are read
     back out of ``stop_times`` here.
+
+    Only the first and last call are needed, so the database does the picking
+    with a window function rather than shipping every intermediate stop back
+    to be discarded. On a board with 4,000 trips averaging 25 stops that is
+    ~8,000 rows instead of ~100,000, which is the difference between the block
+    builder feeling instant and feeling broken.
     """
     if not trip_ids:
         return {}
 
-    rows = db.execute(
+    ranked = (
         select(
-            StopTime.trip_id,
-            PatternStop.sequence,
-            PatternStop.location_id,
-            Location.name,
-            StopTime.arrival_seconds,
-            StopTime.departure_seconds,
+            StopTime.trip_id.label("trip_id"),
+            PatternStop.location_id.label("location_id"),
+            Location.name.label("location_name"),
+            StopTime.arrival_seconds.label("arrival_seconds"),
+            StopTime.departure_seconds.label("departure_seconds"),
+            func.row_number()
+            .over(partition_by=StopTime.trip_id, order_by=PatternStop.sequence.asc())
+            .label("rank_from_start"),
+            func.row_number()
+            .over(partition_by=StopTime.trip_id, order_by=PatternStop.sequence.desc())
+            .label("rank_from_end"),
         )
         .join(PatternStop, StopTime.pattern_stop_id == PatternStop.id)
         .join(Location, PatternStop.location_id == Location.id)
         .where(StopTime.trip_id.in_(trip_ids))
-        .order_by(StopTime.trip_id, PatternStop.sequence)
+        .subquery()
+    )
+
+    rows = db.execute(
+        select(ranked).where(
+            (ranked.c.rank_from_start == 1) | (ranked.c.rank_from_end == 1)
+        )
     ).all()
 
     result: dict[int, Endpoints] = {}
-    for trip_id, _seq, location_id, location_name, arrival, departure in rows:
-        ep = result.get(trip_id)
-        if ep is None:
-            # First row for this trip is its origin.
-            result[trip_id] = Endpoints(
-                from_location_id=location_id,
-                to_location_id=location_id,
-                from_location_name=location_name,
-                to_location_name=location_name,
-                start_seconds=departure,
-                end_seconds=arrival,
-            )
-        else:
-            ep.to_location_id = location_id
-            ep.to_location_name = location_name
-            ep.end_seconds = arrival
+    for row in rows:
+        ep = result.setdefault(row.trip_id, Endpoints())
+        if row.rank_from_start == 1:
+            ep.from_location_id = row.location_id
+            ep.from_location_name = row.location_name
+            ep.start_seconds = row.departure_seconds
+        if row.rank_from_end == 1:
+            ep.to_location_id = row.location_id
+            ep.to_location_name = row.location_name
+            ep.end_seconds = row.arrival_seconds
     return result
 
 

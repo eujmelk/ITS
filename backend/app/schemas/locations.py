@@ -145,9 +145,15 @@ class LocationTransferRead(LocationTransferBase, ORMModel):
 
 
 class TransferEdge(BaseModel):
-    """One walking edge as the itinerary finder sees it."""
+    """One walking edge as the itinerary finder sees it.
+
+    Carries the endpoint names so a client can render the graph without
+    holding the whole locations table in memory to look ids up.
+    """
 
     from_location_id: int
     to_location_id: int
+    from_location_name: str | None = None
+    to_location_name: str | None = None
     walk_seconds: int
     source: str = Field(description="'stop_area' or 'explicit'")

@@ -38,12 +38,9 @@ Set it to `false` before you start entering anything you care about.
 
 ---
 
-## What is built, and what is not
+## What is built
 
-You asked for the backbone first, with rostering and the itinerary finder
-stubbed behind their final API shapes. That is what this is.
-
-**Complete — phases 1 to 9**
+All twelve phases of §9.
 
 | Phase | Status |
 | --- | --- |
@@ -56,23 +53,9 @@ stubbed behind their final API shapes. That is what this is.
 | 7. PDF timetables | WeasyPrint, timepoint-only option, multi-page column splitting |
 | 8. Fleet & interlined blocks | Vehicle types, vehicles, blocks, location-aware piece editor, consistency validator |
 | 9. Settings | `parameters` CRUD, typed values, restore-defaults |
-
-**Deliberately not built — phases 10 and 11**
-
-- **Duty builder** (`/duties`, `/duties/{id}/pieces`, `/duties/{id}/validate`)
-- **Itinerary search** (`/itinerary/search`)
-
-These return **501** with an explanatory message rather than an empty `200`,
-so nothing silently looks like "no data yet". Their request and response
-models are final, the `duties` and `duty_pieces` tables already exist in the
-database, and the things they depend on — validated blocks, and operating
-parameters to check against — are finished. Adding them is filling in
-handlers, not redesigning a contract.
-
-One piece of phase 11 *is* built: the transfer graph
-(`GET /api/v1/location-transfers/graph/edges`), because that is the part the
-v3 revision actually changed. You can inspect it today on the Locations and
-Itinerary pages.
+| 10. Full rostering | Duty builder, block splitting, break rules, coverage report, duty-card PDFs |
+| 11. Itinerary finder | Connection-scan search over the stop-area/transfer graph |
+| 12. Polish | CSV exports, PDF styling, pagination and search throughout |
 
 **Added beyond the spec**, because they were cheap and the modules are
 awkward without them:
@@ -83,8 +66,36 @@ awkward without them:
 - Board copy and pattern copy, for building next season from this one.
 - Fare-matrix bulk fill and a live fare quote between two real stops.
 - "Unassigned trips" work list with a *connects here* filter for block building.
+- Block coverage report: which pieces of which blocks still have no driver.
+- Driver double-booking and relief-handover checks on top of the §5 rules.
 - CSV exports (locations, stop times) and a data-quality report.
 - Users, roles, and a bootstrap administrator.
+
+## Built for real data volumes
+
+A network is tens of thousands of rows, and a UI that quietly loads "the first
+thousand" is worse than one that fails loudly. So:
+
+- **Every list is paged server-side** and reports the unpaged total — the grid
+  says "Showing 51–100 of 4,312", never a truncated list dressed up as a
+  complete one. Column headers sort server-side; search is debounced.
+- **Foreign keys are searchable pickers, not dropdowns.** A `<select>` with
+  every stop in it is one oversized response and thousands of DOM nodes, and
+  the block editor would render one per piece row. `EntitySelect` queries the
+  server as you type and holds 25 options at a time, with a shared label cache
+  so twenty pieces pointing at the same depot cost one request.
+- **The timetable pages its trip columns.** A high-frequency pattern runs 250+
+  trips a day; the grid loads 40 columns at a time, ordered by departure
+  *before* slicing, and fetches stop times only for the visible ones.
+- **The map draws only what is in view**, capped at 750 markers, and says so
+  when it is holding some back.
+- **The block builder's "connects here" filter runs in the database**, not in
+  the browser — that shortlist is a handful of trips out of a board's
+  thousands.
+- **Trip endpoints are resolved with a window function**, so building a block
+  reads two rows per trip instead of every stop time on the board.
+- The fare matrix is quadratic in zones by nature; past 25 zones it asks
+  before rendering and points at bulk-fill instead.
 
 ---
 
@@ -119,17 +130,33 @@ deadhead / pull-out / pull-in pieces carry their own endpoints. The API
 returns both, as `effective_*` fields, so the frontend never has to know which
 kind it is looking at.
 
+**The itinerary search is a Connection Scan**, not a graph search: every trip
+is chopped into stop-to-stop connections, sorted by departure, and one forward
+pass fixes the earliest arrival everywhere. It is easy to check against a
+printed timetable by hand, which matters more here than raw speed — a service
+day is a small enough scan for that trade to be free.
+
+One wrinkle worth knowing: earliest-arrival labelling has an artifact where
+walking away from the origin the moment the search window opens reaches a
+neighbouring stop hours before any vehicle, so every journey through that stop
+gets reconstructed as "walk, wait an hour, ride" even when boarding at the
+origin arrives at the same time. The scan is therefore run both with and
+without origin footpaths, keeping whichever journey is better on (arrival,
+number of legs). Walks are also scheduled as late as they can go, so a
+connection reads as "leave at 08:56, walk 4 minutes, board at 09:00".
+
 **Your two open questions from §10**, answered as follows — both are easy to
 reverse:
 
-1. *Per-line/per-driver parameter overrides?* Not yet. But every read goes
-   through `parameters.resolve(db, key, scope=...)`, which already takes a
-   scope it currently ignores. Adding a `parameter_overrides` table changes
+1. *Per-line/per-driver parameter overrides?* Not implemented. But every read
+   goes through `parameters.resolve(db, key, scope=...)`, which already takes
+   a scope it currently ignores. Adding a `parameter_overrides` table changes
    that one function and no caller.
 2. *Must a block split between two drivers have a break at the hand-off?*
-   A direct hand-off is allowed, and there is a parameter —
-   `require_break_at_driver_changeover`, default `false` — that turns the
-   requirement on when the duty builder lands.
+   A direct hand-off is allowed and reported as an informational
+   `RELIEF_WITHOUT_BREAK` note. Setting the
+   `require_break_at_driver_changeover` parameter to `true` promotes it to an
+   error. Both are live — see `test_direct_handover_is_allowed_but_flagged`.
 
 ---
 
@@ -148,20 +175,24 @@ backend/
     schemas/                Pydantic request/response models
     api/                    routers, one module per domain
     services/
-      crud.py               generic CRUD router factory
+      crud.py               generic CRUD router factory (paging, sort, search)
       blocks.py             piece resolution + consistency validator
+      duties.py             duty resolution + the §5 rule checks
       transfers.py          the walking-transfer graph
       timetable.py          the stops-down / trips-across grid
       trips.py              generation, stop times, shifting
+      calendars.py          which services run on a given date
+      itinerary.py          connection-scan journey search
       parameters.py         parameter resolution (scope-ready)
       pdf.py, seed.py
-    templates/timetable.html
+    templates/              timetable.html, duty_card.html
   alembic/                  migrations
   tests/
 frontend/
   src/
     api/                    fetch client + shared types
-    components/             Crud factory, ui kit, map, attribute editor
+    components/             Crud factory (paged table), EntitySelect,
+                            ui kit, map, attribute editor
     pages/                  one per module
   nginx.conf                serves the SPA, proxies /api to the api container
 ```

@@ -17,8 +17,9 @@ import {
   AttributeEditor,
   LOCATION_ATTRIBUTE_SUGGESTIONS,
 } from '../components/AttributeEditor'
+import { EntitySelect } from '../components/EntitySelect'
 import { MapView } from '../components/MapView'
-import { Alert, Empty, IssueList, Modal, PageHead, Panel, Spinner } from '../components/ui'
+import { Alert, Empty, Field, IssueList, Modal, PageHead, Panel, Spinner } from '../components/ui'
 import { useApp } from '../state/AppContext'
 
 const TYPES = ['stop', 'depot', 'layover', 'garage', 'other']
@@ -30,22 +31,19 @@ export default function LocationsPage() {
   const [tab, setTab] = useState<Tab>('locations')
   const [reloadKey, setReloadKey] = useState(0)
 
-  const { items: locations, reload: reloadLocations } = useList<Location>('/locations')
-  const { items: zones } = useList<FareZone>('/fare-zones')
+  // Reference data small enough to hold whole. Locations are NOT: they are
+  // fetched with an explicit cap for the map only, and `truncated` says so
+  // out loud rather than quietly drawing a subset.
+  const MAP_CAP = 2000
+  const mapParams = useMemo(() => ({ limit: MAP_CAP }), [])
+  const {
+    items: locations,
+    total: locationTotal,
+    truncated: mapTruncated,
+    reload: reloadLocations,
+  } = useList<Location>('/locations', mapParams)
+  const { items: zones } = useList<FareZone>('/fare-zones', undefined)
   const { items: areas, reload: reloadAreas } = useList<StopArea>('/stop-areas')
-
-  const locationOptions = useMemo(
-    () =>
-      locations.map((l) => ({
-        value: l.id,
-        label: `${l.name}${l.code ? ` (${l.code})` : ''} · ${l.location_type}`,
-      })),
-    [locations],
-  )
-  const stopOptions = useMemo(
-    () => locations.filter((l) => l.location_type === 'stop'),
-    [locations],
-  )
 
   const fields: FormField[] = [
     { name: 'name', label: 'Name', required: true },
@@ -69,8 +67,8 @@ export default function LocationsPage() {
     {
       name: 'area_id',
       label: 'Stop area',
-      type: 'select',
-      options: areas.map((a) => ({ value: a.id, label: a.name })),
+      type: 'entity',
+      endpoint: '/stop-areas',
       hint: 'stop-type locations only',
     },
     { name: 'is_active', label: 'Active', type: 'checkbox' },
@@ -78,11 +76,12 @@ export default function LocationsPage() {
   ]
 
   const columns: Column<Location>[] = [
-    { key: 'name', label: 'Name' },
-    { key: 'code', label: 'Code' },
+    { key: 'name', label: 'Name', sortKey: 'name' },
+    { key: 'code', label: 'Code', sortKey: 'code' },
     {
       key: 'location_type',
       label: 'Type',
+      sortKey: 'location_type',
       render: (row) => <span className="tag grey">{row.location_type}</span>,
     },
     { key: 'zone_name', label: 'Zone' },
@@ -147,6 +146,13 @@ export default function LocationsPage() {
             />
           </Panel>
           <Panel title="Reference map" hint="colour by type">
+            {mapTruncated && (
+              <p className="small muted" style={{ marginTop: 0 }}>
+                Mapping the first {MAP_CAP.toLocaleString()} of{' '}
+                {locationTotal.toLocaleString()} locations. Use the table's
+                search to find a specific one.
+              </p>
+            )}
             <MapView
               key={reloadKey}
               points={locations
@@ -164,13 +170,9 @@ export default function LocationsPage() {
         </div>
       )}
 
-      {tab === 'areas' && (
-        <StopAreasPanel areas={areas} stops={stopOptions} reload={reloadAreas} />
-      )}
+      {tab === 'areas' && <StopAreasPanel areas={areas} reload={reloadAreas} />}
 
-      {tab === 'transfers' && (
-        <TransfersPanel locationOptions={locationOptions} />
-      )}
+      {tab === 'transfers' && <TransfersPanel />}
 
       {tab === 'quality' && <QualityPanel />}
     </>
@@ -245,18 +247,10 @@ function AttributesButton({ location, onSaved }: { location: Location; onSaved: 
 
 /* ------------------------------------------------------------ stop areas */
 
-function StopAreasPanel({
-  areas,
-  stops,
-  reload,
-}: {
-  areas: StopArea[]
-  stops: Location[]
-  reload: () => void
-}) {
+function StopAreasPanel({ areas, reload }: { areas: StopArea[]; reload: () => void }) {
   const { canEdit } = useApp()
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [selected, setSelected] = useState<number[]>([])
+  const [members, setMembers] = useState<{ id: number; name: string }[]>([])
   const [error, setError] = useState('')
 
   const editing = areas.find((a) => a.id === editingId) ?? null
@@ -265,7 +259,9 @@ function StopAreasPanel({
     if (!editing) return
     setError('')
     try {
-      await api.put(`/stop-areas/${editing.id}/members`, { location_ids: selected })
+      await api.put(`/stop-areas/${editing.id}/members`, {
+        location_ids: members.map((m) => m.id),
+      })
       setEditingId(null)
       reload()
     } catch (e) {
@@ -322,7 +318,12 @@ function StopAreasPanel({
               className="small"
               onClick={() => {
                 setEditingId(row.id)
-                setSelected(row.location_ids ?? [])
+                setMembers(
+                  (row.location_ids ?? []).map((id, index) => ({
+                    id,
+                    name: row.location_names?.[index] ?? `#${id}`,
+                  })),
+                )
                 setError('')
               }}
             >
@@ -348,34 +349,52 @@ function StopAreasPanel({
           <Alert kind="err">{error}</Alert>
           <p className="small muted" style={{ marginTop: 0 }}>
             Only stop-type locations can join an area — a depot is not
-            somewhere a passenger transfers.
+            somewhere a passenger transfers. An area normally holds two or
+            three stops, so search for them rather than scrolling the network.
           </p>
-          <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-            {stops.length === 0 && <Empty>No stop-type locations exist yet.</Empty>}
-            {stops.map((stop) => (
-              <div className="field inline" key={stop.id}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(stop.id)}
-                  onChange={(e) =>
-                    setSelected((current) =>
-                      e.target.checked
-                        ? [...current, stop.id]
-                        : current.filter((id) => id !== stop.id),
-                    )
-                  }
-                />
-                <label>
-                  {stop.name} {stop.code && <span className="muted">({stop.code})</span>}
-                  {stop.area_id && stop.area_id !== editing.id && (
-                    <span className="tag warn" style={{ marginLeft: 6 }}>
-                      in {stop.area_name}
-                    </span>
-                  )}
-                </label>
-              </div>
-            ))}
-          </div>
+
+          {members.length === 0 ? (
+            <Empty>No member stops yet.</Empty>
+          ) : (
+            <table className="grid" style={{ marginBottom: 10 }}>
+              <tbody>
+                {members.map((member) => (
+                  <tr key={member.id}>
+                    <td>{member.name}</td>
+                    <td className="actions">
+                      <button
+                        className="small danger"
+                        onClick={() =>
+                          setMembers(members.filter((m) => m.id !== member.id))
+                        }
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <Field label="Add a stop">
+            <EntitySelect
+              endpoint="/locations"
+              params={{ location_type: 'stop' }}
+              value={null}
+              placeholder="Search stops…"
+              allowClear={false}
+              onChange={async (id) => {
+                if (id == null || members.some((m) => m.id === id)) return
+                try {
+                  const row = await api.get<Location>(`/locations/${id}`)
+                  setMembers((current) => [...current, { id, name: row.name }])
+                } catch {
+                  setMembers((current) => [...current, { id, name: `#${id}` }])
+                }
+              }}
+            />
+          </Field>
         </Modal>
       )}
     </Panel>
@@ -384,18 +403,13 @@ function StopAreasPanel({
 
 /* ------------------------------------------------------------- transfers */
 
-function TransfersPanel({
-  locationOptions,
-}: {
-  locationOptions: { value: number; label: string }[]
-}) {
+function TransfersPanel() {
   const [showGraph, setShowGraph] = useState(false)
   const { items: edges, loading } = useList<TransferEdge>(
     '/location-transfers/graph/edges',
     undefined,
     showGraph,
   )
-  const names = new Map(locationOptions.map((o) => [o.value, o.label]))
 
   return (
     <>
@@ -430,16 +444,16 @@ function TransfersPanel({
             {
               name: 'from_location_id',
               label: 'From location',
-              type: 'select',
+              type: 'entity',
+              endpoint: '/locations',
               required: true,
-              options: locationOptions,
             },
             {
               name: 'to_location_id',
               label: 'To location',
-              type: 'select',
+              type: 'entity',
+              endpoint: '/locations',
               required: true,
-              options: locationOptions,
             },
             { name: 'walk_seconds', label: 'Walk time (seconds)', type: 'number' },
             { name: 'distance_m', label: 'Distance (m)', type: 'number' },
@@ -482,8 +496,8 @@ function TransfersPanel({
                 <tbody>
                   {edges.map((edge, index) => (
                     <tr key={index}>
-                      <td>{names.get(edge.from_location_id) ?? edge.from_location_id}</td>
-                      <td>{names.get(edge.to_location_id) ?? edge.to_location_id}</td>
+                      <td>{edge.from_location_name ?? edge.from_location_id}</td>
+                      <td>{edge.to_location_name ?? edge.to_location_id}</td>
                       <td className="num">{Math.round(edge.walk_seconds / 60)} min</td>
                       <td>
                         <span className={`tag ${edge.source === 'explicit' ? '' : 'grey'}`}>

@@ -11,8 +11,9 @@ import type {
   Vehicle,
   VehicleType,
 } from '../api/types'
-import { CrudTable, useList } from '../components/Crud'
+import { CrudTable, Pager, useList } from '../components/Crud'
 import type { Column } from '../components/Crud'
+import { EntitySelect } from '../components/EntitySelect'
 import {
   Alert,
   Empty,
@@ -32,8 +33,10 @@ type Tab = 'blocks' | 'vehicles' | 'types'
 
 export default function FleetPage() {
   const [tab, setTab] = useState<Tab>('blocks')
+  // Vehicle types are a genuinely short list (a handful per operator), so
+  // holding them whole is fine. Locations and vehicles are not, and are
+  // reached through EntitySelect instead.
   const { items: types, reload: reloadTypes } = useList<VehicleType>('/vehicle-types')
-  const { items: locations } = useList<Location>('/locations')
 
   return (
     <>
@@ -54,7 +57,7 @@ export default function FleetPage() {
         </button>
       </div>
 
-      {tab === 'blocks' && <BlocksTab types={types} locations={locations} />}
+      {tab === 'blocks' && <BlocksTab types={types} />}
 
       {tab === 'vehicles' && (
         <Panel>
@@ -62,13 +65,14 @@ export default function FleetPage() {
             endpoint="/vehicles"
             entityName="Vehicle"
             columns={[
-              { key: 'fleet_number', label: 'Fleet no.' },
+              { key: 'fleet_number', label: 'Fleet no.', sortKey: 'fleet_number' },
               { key: 'vehicle_type_name', label: 'Type' },
               { key: 'depot_name', label: 'Home depot' },
-              { key: 'registration', label: 'Registration' },
+              { key: 'registration', label: 'Registration', sortKey: 'registration' },
               {
                 key: 'is_active',
                 label: 'Status',
+                sortKey: 'is_active',
                 render: (row) =>
                   row.is_active ? <span className="tag ok">active</span> : <span className="tag grey">out of service</span>,
               },
@@ -85,10 +89,10 @@ export default function FleetPage() {
               {
                 name: 'depot_location_id',
                 label: 'Home depot',
-                type: 'select',
-                options: locations
-                  .filter((l) => l.location_type === 'depot' || l.location_type === 'garage')
-                  .map((l) => ({ value: l.id, label: l.name })),
+                type: 'entity',
+                endpoint: '/locations',
+                entityParams: { location_type: 'depot' },
+                hint: 'search depots',
               },
               { name: 'registration', label: 'Registration' },
               { name: 'is_active', label: 'In service', type: 'checkbox' },
@@ -133,9 +137,8 @@ export default function FleetPage() {
 
 /* ---------------------------------------------------------------- blocks */
 
-function BlocksTab({ types, locations }: { types: VehicleType[]; locations: Location[] }) {
+function BlocksTab({ types }: { types: VehicleType[] }) {
   const { items: boards } = useList<ScheduleVersion>('/schedule-versions')
-  const { items: vehicles } = useList<Vehicle>('/vehicles')
   const [boardId, setBoardId] = useState('')
   const [editing, setEditing] = useState<Block | null>(null)
   const [allReport, setAllReport] = useState<ValidationReport | null>(null)
@@ -152,7 +155,7 @@ function BlocksTab({ types, locations }: { types: VehicleType[]; locations: Loca
   )
 
   const columns: Column<Block>[] = [
-    { key: 'name', label: 'Block' },
+    { key: 'name', label: 'Block', sortKey: 'name' },
     { key: 'vehicle_fleet_number', label: 'Vehicle' },
     { key: 'piece_count', label: 'Pieces', numeric: true },
     {
@@ -220,8 +223,9 @@ function BlocksTab({ types, locations }: { types: VehicleType[]; locations: Loca
               {
                 name: 'vehicle_id',
                 label: 'Vehicle',
-                type: 'select',
-                options: vehicles.map((v) => ({ value: v.id, label: v.fleet_number })),
+                type: 'entity',
+                endpoint: '/vehicles',
+                entityParams: { is_active: true },
               },
               {
                 name: 'vehicle_type_id',
@@ -253,13 +257,7 @@ function BlocksTab({ types, locations }: { types: VehicleType[]; locations: Loca
         </Panel>
       )}
 
-      {editing && (
-        <BlockPiecesEditor
-          block={editing}
-          locations={locations}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      {editing && <BlockPiecesEditor block={editing} onClose={() => setEditing(null)} />}
     </>
   )
 }
@@ -271,15 +269,7 @@ const PIECE_TYPES: { value: BlockPieceType; label: string }[] = [
   { value: 'pull_in', label: 'Pull-in (last stop → depot)' },
 ]
 
-function BlockPiecesEditor({
-  block,
-  locations,
-  onClose,
-}: {
-  block: Block
-  locations: Location[]
-  onClose: () => void
-}) {
+function BlockPiecesEditor({ block, onClose }: { block: Block; onClose: () => void }) {
   const { canEdit } = useApp()
   const [pieces, setPieces] = useState<BlockPiece[]>([])
   const [report, setReport] = useState<ValidationReport | null>(null)
@@ -287,16 +277,6 @@ function BlockPiecesEditor({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
-
-  const locationName = useMemo(
-    () => new Map(locations.map((l) => [l.id, l.name])),
-    [locations],
-  )
-  // Non-revenue legs may start or end anywhere, but a depot/garage/layover is
-  // what the validator expects at the ends of a block.
-  const depotish = locations.filter((l) =>
-    ['depot', 'garage', 'layover'].includes(l.location_type),
-  )
 
   async function load() {
     setLoading(true)
@@ -399,7 +379,7 @@ function BlockPiecesEditor({
           {pieces.length === 0 ? (
             <Empty>No pieces yet.</Empty>
           ) : (
-            <div className="table-wrap">
+            <div className="table-wrap allow-overflow">
               <table className="grid">
                 <thead>
                   <tr>
@@ -447,7 +427,7 @@ function BlockPiecesEditor({
                             <LocationPicker
                               value={piece.from_location_id}
                               onChange={(v) => update(index, { from_location_id: v })}
-                              options={piece.piece_type === 'pull_out' ? depotish : locations}
+                              typeFilter={piece.piece_type === 'pull_out' ? 'depot' : undefined}
                               disabled={!canEdit}
                             />
                           )}
@@ -459,7 +439,7 @@ function BlockPiecesEditor({
                             <LocationPicker
                               value={piece.to_location_id}
                               onChange={(v) => update(index, { to_location_id: v })}
-                              options={piece.piece_type === 'pull_in' ? depotish : locations}
+                              typeFilter={piece.piece_type === 'pull_in' ? 'depot' : undefined}
                               disabled={!canEdit}
                             />
                           )}
@@ -588,30 +568,39 @@ function BlockPiecesEditor({
   )
 }
 
+/**
+ * Location picker for one block piece.
+ *
+ * `typeFilter` narrows the search server-side: a pull-out starts at a depot,
+ * garage or layover, not at a passenger stop. It is a filter, not a hard
+ * constraint — the validator still only warns — so the underlying data model
+ * stays as permissive as the architecture doc describes.
+ */
 function LocationPicker({
   value,
   onChange,
-  options,
+  typeFilter,
   disabled,
 }: {
   value: number | null
   onChange: (v: number | null) => void
-  options: Location[]
+  typeFilter?: string
   disabled?: boolean
 }) {
+  const params = useMemo(
+    () => (typeFilter ? { location_type: typeFilter } : undefined),
+    [typeFilter],
+  )
   return (
-    <select
-      value={value ?? ''}
+    <EntitySelect
+      endpoint="/locations"
+      params={params}
+      value={value}
+      onChange={onChange}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-    >
-      <option value="">— choose —</option>
-      {options.map((l) => (
-        <option key={l.id} value={l.id}>
-          {l.name} ({l.location_type})
-        </option>
-      ))}
-    </select>
+      placeholder="Search…"
+      sublabelOf={(row) => row.location_type}
+    />
   )
 }
 
@@ -628,21 +617,34 @@ function TripPicker({
   onClose: () => void
   onPick: (trip: UnassignedTrip) => void
 }) {
-  const params = useMemo(
-    () => ({ schedule_version_id: scheduleVersionId }),
-    [scheduleVersionId],
-  )
-  const { items, loading, error } = useList<UnassignedTrip>('/fleet/unassigned-trips', params)
   const [onlyConnecting, setOnlyConnecting] = useState(!!lastLocationId)
+  const [lineId, setLineId] = useState<number | null>(null)
+  const [limit, setLimit] = useState(50)
+  const [offset, setOffset] = useState(0)
 
-  // "Connecting" = starts where the block currently is, and not before it
-  // gets there. That is the shortlist a scheduler actually wants.
-  const shown = items.filter((trip) => {
-    if (!onlyConnecting || !lastLocationId) return true
-    if (trip.from_location_id !== lastLocationId) return false
-    if (lastEnd && trip.start_seconds && trip.start_seconds < lastEnd) return false
-    return true
-  })
+  // The "connects here" shortlist is computed in the database. A whole
+  // board's unassigned trips can be thousands of rows; fetching them all to
+  // filter in the browser was the wrong side of the wire to do it on.
+  const params = useMemo(
+    () => ({
+      schedule_version_id: scheduleVersionId,
+      ...(lineId ? { line_id: lineId } : {}),
+      ...(onlyConnecting && lastLocationId
+        ? { connects_from_location_id: lastLocationId, ...(lastEnd ? { not_before: lastEnd } : {}) }
+        : {}),
+      limit,
+      offset,
+    }),
+    [scheduleVersionId, lineId, onlyConnecting, lastLocationId, lastEnd, limit, offset],
+  )
+  const { items, total, loading, error } = useList<UnassignedTrip>(
+    '/fleet/unassigned-trips',
+    params,
+  )
+
+  useEffect(() => {
+    setOffset(0)
+  }, [onlyConnecting, lineId])
 
   return (
     <Modal wide title="Add a trip to the block" onClose={onClose}>
@@ -660,17 +662,24 @@ function TripPicker({
             {lastLocationId ? '' : ' (add a first piece to enable)'}
           </label>
         </div>
-        <span className="spacer" />
-        <span className="muted small">{shown.length} of {items.length} unassigned</span>
+        <Field label="Line">
+          <EntitySelect
+            endpoint="/lines"
+            value={lineId}
+            onChange={setLineId}
+            placeholder="Any line"
+            labelOf={(row) => `${row.short_name}${row.long_name ? ` — ${row.long_name}` : ''}`}
+          />
+        </Field>
       </div>
 
-      {loading ? (
+      {loading && items.length === 0 ? (
         <Spinner />
-      ) : shown.length === 0 ? (
+      ) : items.length === 0 ? (
         <Empty>
-          {items.length === 0
-            ? 'Every trip on this board is already in a block.'
-            : 'No unassigned trip connects here. Insert a deadhead first, or untick the filter.'}
+          {onlyConnecting && lastLocationId
+            ? 'No unassigned trip connects here. Insert a deadhead first, or untick the filter.'
+            : 'Every trip on this board is already in a block.'}
         </Empty>
       ) : (
         <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
@@ -687,7 +696,7 @@ function TripPicker({
               </tr>
             </thead>
             <tbody>
-              {shown.map((trip) => (
+              {items.map((trip) => (
                 <tr key={trip.trip_id}>
                   <td>
                     <span className="tag">{trip.line_short_name}</span>
@@ -708,6 +717,15 @@ function TripPicker({
           </table>
         </div>
       )}
+
+      <Pager
+        offset={offset}
+        limit={limit}
+        total={total}
+        loading={loading}
+        onOffset={setOffset}
+        onLimit={setLimit}
+      />
     </Modal>
   )
 }
