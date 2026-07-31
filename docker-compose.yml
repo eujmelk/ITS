@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-transit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-transit}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Published for admin access / psql. Comment this block out in
+      # production so the database is only reachable inside the network.
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-transit} -d ${POSTGRES_DB:-transit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-transit}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-transit}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FIRST_ADMIN_USERNAME: ${FIRST_ADMIN_USERNAME:-admin}
+      FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:?FIRST_ADMIN_PASSWORD must be set}
+      FIRST_ADMIN_EMAIL: ${FIRST_ADMIN_EMAIL:-admin@example.com}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+      MAP_TILE_URL: ${MAP_TILE_URL:-https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png}
+      MAP_ATTRIBUTION: ${MAP_ATTRIBUTION:-&copy; OpenStreetMap contributors}
+      MAP_DEFAULT_LAT: ${MAP_DEFAULT_LAT:-52.3676}
+      MAP_DEFAULT_LON: ${MAP_DEFAULT_LON:-4.9041}
+      MAP_DEFAULT_ZOOM: ${MAP_DEFAULT_ZOOM:-12}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=4).status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ t.line_short_name }} — {{ t.pattern_name }}</title>
+<style>
+  @page {
+    size: {{ page_size }};
+    margin: 14mm 12mm 16mm 12mm;
+    @bottom-left {
+      content: "{{ board_name }}{% if t.calendar_name %} · {{ t.calendar_name }}{% endif %}";
+      font: 8pt "DejaVu Sans", sans-serif;
+      color: #666;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font: 8pt "DejaVu Sans", sans-serif;
+      color: #666;
+    }
+  }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 8pt; color: #111; }
+  header { border-bottom: 2px solid {{ line_color }}; padding-bottom: 6px; margin-bottom: 10px; }
+  .badge {
+    display: inline-block; background: {{ line_color }}; color: {{ line_text_color }};
+    font-size: 15pt; font-weight: bold; padding: 2px 9px; border-radius: 3px;
+    vertical-align: middle;
+  }
+  h1 { display: inline-block; font-size: 13pt; margin: 0 0 0 8px; vertical-align: middle; font-weight: normal; }
+  .meta { color: #555; font-size: 8pt; margin-top: 5px; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  th, td { padding: 2.5px 3px; text-align: right; font-variant-numeric: tabular-nums; }
+  th.stop, td.stop {
+    text-align: left; width: 46mm; font-weight: normal;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  thead th { border-bottom: 1px solid #333; font-size: 7pt; color: #555; }
+  /* Repeat the stop-name column header on every printed page. */
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  tbody tr:nth-child(even) { background: #f4f4f4; }
+  tbody tr.timepoint td { font-weight: bold; }
+  tbody tr.timepoint td.stop { border-left: 2px solid {{ line_color }}; padding-left: 4px; }
+  td.empty { color: #bbb; }
+  .footnote { margin-top: 10px; font-size: 7pt; color: #666; }
+</style>
+</head>
+<body>
+<header>
+  <span class="badge">{{ t.line_short_name }}</span>
+  <h1>{{ t.line_long_name or t.pattern_name }}</h1>
+  <div class="meta">
+    {{ t.pattern_name }} · direction {{ t.direction }}
+    {%- if t.calendar_name %} · {{ t.calendar_name }}{% endif %}
+    · {{ t.trip_ids | length }} trips
+    · board “{{ board_name }}”
+  </div>
+</header>
+
+{% if not t.rows %}
+  <p>This pattern has no stops.</p>
+{% elif not t.trip_ids %}
+  <p>No trips are scheduled on this pattern for the selected board{% if t.calendar_name %} and calendar{% endif %}.</p>
+{% else %}
+{% for chunk in chunks %}
+<table>
+  <thead>
+    <tr>
+      <th class="stop">Stop</th>
+      {% for _ in chunk %}<th></th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in t.rows %}
+    <tr class="{{ 'timepoint' if row.is_timepoint else '' }}">
+      <td class="stop" title="{{ row.location_name }}">{{ row.location_name }}</td>
+      {% for index in chunk %}
+        {% set cell = row.cells[index] %}
+        {% if cell.departure_seconds is none %}
+          <td class="empty">·</td>
+        {% else %}
+          <td>{{ cell.departure_seconds | hhmm }}</td>
+        {% endif %}
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if not loop.last %}<div style="page-break-after: always;"></div>{% endif %}
+{% endfor %}
+{% endif %}
+
+<p class="footnote">
+  Bold rows are timepoints. “·” means the trip does not call at that stop.
+  Times after midnight are shown on the following day’s clock.
+  Generated {{ generated_at }}.
+</p>
+</body>
+</html>
