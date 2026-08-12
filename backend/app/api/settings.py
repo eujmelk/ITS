@@ -90,7 +90,16 @@ def reset_defaults(db: DbSession):
     return db.scalars(select(Parameter).order_by(Parameter.key)).all()
 
 
+#: Blank here would leave the UI with no name at all.
+_REQUIRED_NON_EMPTY = {"instance_name", "agency_timezone"}
+
+
 def _validate_value(row: Parameter) -> None:
+    if row.key in _REQUIRED_NON_EMPTY and not (row.value or "").strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"'{row.key}' cannot be empty.",
+        )
     if row.value_type in ("int", "float"):
         try:
             float(row.value)

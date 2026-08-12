@@ -3,7 +3,7 @@
 import csv
 import io
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import select
 
 from app.deps import DbSession, ReaderUser
@@ -18,7 +18,9 @@ from app.models import (
     StopArea,
 )
 from app.services import duties as duty_service
+from app.services import gtfs
 from app.services.crud import get_or_404
+from app.services.parameters import resolve, resolve_text
 from app.services.pdf import render_duty_card_pdf, render_timetable_pdf, safe_filename
 from app.services.timetable import build_timetable
 from app.timeutil import format_time
@@ -39,8 +41,11 @@ def timetable_pdf(
     pattern_id: int,
     calendar_id: int | None = None,
     timepoints_only: bool = Query(
-        default=True,
-        description="Print only timepoint stops -- the usual public format.",
+        default=False,
+        description=(
+            "Print only timepoint stops. Off by default: the full stop list "
+            "is printed, with timepoints emphasised in bold."
+        ),
     ),
     landscape: bool = True,
 ):
@@ -82,24 +87,64 @@ def timetable_pdf(
 def duty_card_pdf(db: DbSession, _user: ReaderUser, duty_id: int):
     """Sign-on, every piece, breaks and sign-off, with real location names."""
     duty = get_or_404(db, Duty, duty_id, "Duty")
-    resolved = duty_service.resolve_duty(db, duty)
-    summary = duty_service.summarise(resolved)
+    events = duty_service.expand_for_card(db, duty)
+    summary = duty_service.summarise(
+        duty_service.resolve_duty(db, duty),
+        resolve(db, "min_single_break_minutes") or 0,
+    )
     issues = duty_service.validate_duty(db, duty)
     board = db.get(ScheduleVersion, duty.schedule_version_id)
+    instance_name = resolve_text(db, "instance_name", "Transit")
 
     pdf = render_duty_card_pdf(
         duty=duty,
-        resolved=resolved,
+        events=events,
         summary=summary,
         issues=issues,
         driver_name=duty.driver.display_name if duty.driver else None,
+        driver_code=duty.driver.code if duty.driver else None,
         board_name=board.name if board else "",
+        agency_name=resolve_text(db, "agency_name", instance_name),
     )
     filename = safe_filename("duty", duty.name, str(duty.date)) + ".pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/gtfs/validate",
+    summary="Pre-flight checks before exporting a GTFS feed",
+    response_model=list[str],
+)
+def gtfs_validate(db: DbSession, _user: ReaderUser, schedule_version_id: int):
+    """The things that would make a GTFS reader reject the feed."""
+    return gtfs.validate_feed(db, schedule_version_id)
+
+
+@router.get(
+    "/gtfs/export",
+    summary="GTFS feed for one schedule board",
+    response_class=Response,
+    responses={200: {"content": {"application/zip": {}}}},
+)
+def gtfs_export(db: DbSession, _user: ReaderUser, schedule_version_id: int):
+    """A standards-compliant feed, ready for a journey planner or passenger app.
+
+    Only passenger-facing data is included: depots, garages, layover points,
+    blocks-as-operations and duties stay internal.
+    """
+    try:
+        payload, filename = gtfs.export_feed(db, schedule_version_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

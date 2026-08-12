@@ -6,10 +6,11 @@ from app.schemas.common import ORMModel
 
 
 class ParameterBase(BaseModel):
-    value: str = Field(max_length=255)
+    value: str = Field(default="", max_length=255)
     value_type: str = Field(default="int", pattern=r"^(int|string|bool|float)$")
     description: str | None = None
     unit: str | None = Field(default=None, max_length=32)
+    category: str = Field(default="operating", max_length=32)
 
 
 class ParameterCreate(ParameterBase):
@@ -17,10 +18,13 @@ class ParameterCreate(ParameterBase):
 
 
 class ParameterUpdate(BaseModel):
+    # A string parameter may legitimately be set to empty (no agency phone),
+    # so "" must be distinguishable from "not supplied".
     value: str | None = Field(default=None, max_length=255)
     value_type: str | None = Field(default=None, pattern=r"^(int|string|bool|float)$")
     description: str | None = None
     unit: str | None = Field(default=None, max_length=32)
+    category: str | None = Field(default=None, max_length=32)
 
 
 class ParameterRead(ParameterBase, ORMModel):

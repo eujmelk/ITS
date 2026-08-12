@@ -50,12 +50,13 @@ All twelve phases of §9.
 | 4. Schedule boards | Boards, calendars, exception dates, board copy |
 | 5. Schedule within a board | Trip generation at a headway, timetable grid, per-trip editing, whole-trip shift |
 | 6. Fares | Zones, the zone×zone matrix, bulk fill, live quoting |
-| 7. PDF timetables | WeasyPrint, timepoint-only option, multi-page column splitting |
+| 7. PDF timetables | WeasyPrint, all stops with timepoints in bold, multi-page column splitting |
 | 8. Fleet & interlined blocks | Vehicle types, vehicles, blocks, location-aware piece editor, consistency validator |
 | 9. Settings | `parameters` CRUD, typed values, restore-defaults |
-| 10. Full rostering | Duty builder, block splitting, break rules, coverage report, duty-card PDFs |
+| 10. Full rostering | Duty builder, block splitting, break rules, coverage report, detailed duty-card PDFs |
 | 11. Itinerary finder | Connection-scan search over the stop-area/transfer graph |
 | 12. Polish | CSV exports, PDF styling, pagination and search throughout |
+| 13. GTFS export *(beyond the doc)* | Standards-compliant feed per board, with pre-flight checks |
 
 **Added beyond the spec**, because they were cheap and the modules are
 awkward without them:
@@ -70,6 +71,56 @@ awkward without them:
 - Driver double-booking and relief-handover checks on top of the §5 rules.
 - CSV exports (locations, stop times) and a data-quality report.
 - Users, roles, and a bootstrap administrator.
+- **Stop skipping**: clearing a stop's times on a trip makes it run past
+  without calling, which is how a limited-stop or short working is built
+  without cloning the whole pattern. Stored as the *absence* of a stop time,
+  so the timetable shows a gap and exports leave it out — rather than a call
+  at 00:00 that quietly corrupts the feed.
+- **Editable instance name.** The name in the sidebar, on the login page and
+  in the browser tab is the `instance_name` setting, not an env var, so it can
+  be changed without a redeploy. The agency details next to it are what GTFS
+  needs.
+
+## Printed output
+
+**Timetables** print every stop on the pattern, not only the timepoints.
+Timepoints are what a reader navigates by, so they carry the weight — bold,
+ruled above and below, and marked in the line colour — while intermediate
+stops stay legible but recede. Wide boards split across pages with the stop
+column repeated. `timepoints_only=true` still gives the old condensed sheet if
+you want it for a public display case.
+
+**Duty cards** are Letter portrait, one duty per card: header with agency,
+duty, date and driver; an information strip (sign on, sign off, spread,
+driving, break); then the duty in detail. A block segment is *not* printed as
+"drive block B01" — it is expanded into its actual legs: each trip with its
+line, headsign and timepoints, each deadhead and pull-out/pull-in with its
+endpoints, and the turnaround time between them. Rule-check errors and
+warnings are printed at the foot; informational notes are not, because they
+are noise on paper. There is a signature line.
+
+## GTFS export
+
+`GTFS` on any board builds a standards-compliant zip: `agency`, `stops`,
+`routes`, `trips`, `stop_times`, `calendar`, `calendar_dates`, `transfers`,
+`fare_attributes`, `fare_rules`, `feed_info`. The mapping is close to
+one-to-one because the v3 model was already shaped like GTFS. Three places
+where it deliberately is not:
+
+- **Only passenger-facing data.** Depots, garages, layover points, blocks and
+  duties are operational and stay internal.
+- **Stop areas become parent stations**, which is what GTFS uses them for.
+  Their members are therefore *not* also written to `transfers.txt` — that
+  would be redundant and would lose the "these are the same place" meaning.
+  Explicit pairwise transfers are written, both directions.
+- **`stop_sequence` is renumbered densely per trip.** A trip that skips stops
+  would otherwise leave gaps; legal, but readers differ on how they treat
+  them.
+
+A pre-flight check runs first and reports what would make a strict reader
+reject the feed (no `agency_url`, no timezone, stops without coordinates, a
+board with no trips). Exporting anyway is allowed — a feed missing an agency
+URL is still useful for inspecting the data.
 
 ## Built for real data volumes
 

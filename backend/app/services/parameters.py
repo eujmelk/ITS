@@ -23,11 +23,65 @@ class ParameterSpec:
     value_type: str
     description: str
     unit: str | None = None
+    category: str = "operating"
 
+
+IDENTITY = "identity"
 
 #: Seeded on first startup. Editing the value is a Settings-page action;
 #: editing this list is a code change.
 PARAMETER_SPECS: tuple[ParameterSpec, ...] = (
+    # --- who this instance is ------------------------------------------
+    ParameterSpec(
+        "instance_name",
+        "Transit Scheduling",
+        "string",
+        "Name shown in the sidebar, on the login page and in the browser tab.",
+        None,
+        IDENTITY,
+    ),
+    ParameterSpec(
+        "agency_name",
+        "",
+        "string",
+        "Operator name. Used on exports; falls back to the instance name.",
+        None,
+        IDENTITY,
+    ),
+    ParameterSpec(
+        "agency_url",
+        "",
+        "string",
+        "Public website. GTFS requires a URL on the agency record.",
+        None,
+        IDENTITY,
+    ),
+    ParameterSpec(
+        "agency_timezone",
+        "Europe/Amsterdam",
+        "string",
+        "IANA timezone, e.g. Europe/Paris. GTFS requires this and readers "
+        "interpret every stop time against it.",
+        None,
+        IDENTITY,
+    ),
+    ParameterSpec(
+        "agency_lang",
+        "en",
+        "string",
+        "Two-letter language code for exported feeds.",
+        None,
+        IDENTITY,
+    ),
+    ParameterSpec(
+        "agency_phone",
+        "",
+        "string",
+        "Public enquiries number, included in exported feeds.",
+        None,
+        IDENTITY,
+    ),
+    # --- operating rules -------------------------------------------------
     ParameterSpec(
         "max_driving_minutes_per_day",
         "540",
@@ -135,6 +189,13 @@ def resolve(db: Session, key: str, scope: dict[str, Any] | None = None) -> Any:
     return None
 
 
+def resolve_text(db: Session, key: str, fallback: str = "") -> str:
+    """String parameter, with a fallback for the blank-but-present case."""
+    value = resolve(db, key)
+    text = str(value).strip() if value is not None else ""
+    return text or fallback
+
+
 def resolve_all(db: Session, scope: dict[str, Any] | None = None) -> dict[str, Any]:
     """All known parameters, database values overriding the built-in defaults."""
     values = {spec.key: _cast(spec.default, spec.value_type) for spec in PARAMETER_SPECS}
@@ -158,6 +219,7 @@ def ensure_seeded(db: Session) -> int:
                 value_type=spec.value_type,
                 description=spec.description,
                 unit=spec.unit,
+                category=spec.category,
             )
         )
         added += 1

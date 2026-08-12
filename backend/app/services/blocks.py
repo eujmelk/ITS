@@ -31,6 +31,7 @@ class Endpoints:
     end_seconds: int | None = None
     label: str | None = None
     line_short_name: str | None = None
+    headsign: str | None = None
 
 
 def trip_endpoints(db: Session, trip_ids: list[int]) -> dict[int, Endpoints]:
@@ -138,6 +139,7 @@ def resolve_pieces(db: Session, pieces: list[BlockPiece]) -> dict[int, Endpoints
                 end_seconds=ep.end_seconds,
                 label=f"{short_name or '?'} {headsign or ''}".strip(),
                 line_short_name=short_name,
+                headsign=headsign,
             )
         else:
             resolved[piece.id] = Endpoints(

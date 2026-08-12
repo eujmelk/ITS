@@ -27,7 +27,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async function boot() {
       try {
         const cfg = await api.get<AppConfig>('/config')
-        if (!cancelled) setConfig(cfg)
+        if (!cancelled) {
+          setConfig(cfg)
+          // Keep the browser tab in step with the configured instance name.
+          if (cfg.app_name) document.title = cfg.app_name
+        }
       } catch {
         /* the app still works without it; the map falls back to defaults */
       }

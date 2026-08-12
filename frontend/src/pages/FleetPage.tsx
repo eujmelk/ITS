@@ -142,6 +142,9 @@ function BlocksTab({ types }: { types: VehicleType[] }) {
   const [boardId, setBoardId] = useState('')
   const [editing, setEditing] = useState<Block | null>(null)
   const [allReport, setAllReport] = useState<ValidationReport | null>(null)
+  // Pieces are edited in a modal, so the table is told when its piece_count
+  // and span have gone stale.
+  const [refreshToken, setRefreshToken] = useState(0)
 
   useEffect(() => {
     if (!boardId && boards.length) {
@@ -214,6 +217,7 @@ function BlocksTab({ types }: { types: VehicleType[] }) {
             entityName="Block"
             params={params}
             columns={columns}
+            refreshToken={refreshToken}
             defaults={{ schedule_version_id: Number(boardId) }}
             toPayload={(values, mode) =>
               mode === 'create' ? { ...values, schedule_version_id: Number(boardId) } : values
@@ -257,7 +261,13 @@ function BlocksTab({ types }: { types: VehicleType[] }) {
         </Panel>
       )}
 
-      {editing && <BlockPiecesEditor block={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <BlockPiecesEditor
+          block={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => setRefreshToken((n) => n + 1)}
+        />
+      )}
     </>
   )
 }
@@ -269,7 +279,15 @@ const PIECE_TYPES: { value: BlockPieceType; label: string }[] = [
   { value: 'pull_in', label: 'Pull-in (last stop → depot)' },
 ]
 
-function BlockPiecesEditor({ block, onClose }: { block: Block; onClose: () => void }) {
+function BlockPiecesEditor({
+  block,
+  onClose,
+  onSaved,
+}: {
+  block: Block
+  onClose: () => void
+  onSaved: () => void
+}) {
   const { canEdit } = useApp()
   const [pieces, setPieces] = useState<BlockPiece[]>([])
   const [report, setReport] = useState<ValidationReport | null>(null)
@@ -341,6 +359,7 @@ function BlockPiecesEditor({ block, onClose }: { block: Block; onClose: () => vo
         })),
       })
       await load()
+      onSaved()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     } finally {

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
-import type { Calendar, Line, Pattern, ScheduleVersion, Timetable, Trip } from '../api/types'
+import type {
+  Calendar,
+  Line,
+  Pattern,
+  ScheduleVersion,
+  Timetable,
+  Trip,
+  TripCall,
+} from '../api/types'
 import { Pager, useList } from '../components/Crud'
 import { EntitySelect } from '../components/EntitySelect'
 import {
@@ -123,12 +131,13 @@ export default function SchedulePage() {
           <>
             <button
               disabled={!timetable}
+              title="Every stop, with timepoints in bold"
               onClick={() =>
                 api.openBlob('/pdf/timetable', {
                   schedule_version_id: boardId,
                   pattern_id: patternId,
                   calendar_id: calendarId || undefined,
-                  timepoints_only: true,
+                  timepoints_only: false,
                 })
               }
             >
@@ -429,6 +438,20 @@ function toSeconds(value: string): number {
   return (h || 0) * 3600 + (m || 0) * 60 + (s || 0)
 }
 
+function fromSeconds(total: number): string {
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+}
+
+/** Halfway between two service-day times, for re-timing a restored stop. */
+function midpoint(a: string | null, b: string | null): string {
+  if (!a || !b) return a ?? b ?? '00:00:00'
+  return fromSeconds(Math.round((toSeconds(a) + toSeconds(b)) / 2))
+}
+
 function TripEditor({
   tripId,
   onClose,
@@ -442,35 +465,89 @@ function TripEditor({
   const [trip, setTrip] = useState<Trip | null>(null)
   const [error, setError] = useState('')
   const [shift, setShift] = useState(0)
-  const [times, setTimes] = useState<Record<number, { arrival: string; departure: string }>>({})
+  const [calls, setCalls] = useState<TripCall[]>([])
 
   useEffect(() => {
     api
       .get<Trip>(`/trips/${tripId}/detail`)
       .then((t) => {
         setTrip(t)
-        const map: Record<number, { arrival: string; departure: string }> = {}
-        for (const st of t.stop_times ?? []) {
-          map[st.pattern_stop_id] = { arrival: st.arrival_seconds, departure: st.departure_seconds }
-        }
-        setTimes(map)
+        setCalls(t.calls ?? [])
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : String(e)))
   }, [tripId])
 
+  function update(patternStopId: number, patch: Partial<TripCall>) {
+    setCalls((current) =>
+      current.map((call) =>
+        call.pattern_stop_id === patternStopId ? { ...call, ...patch } : call,
+      ),
+    )
+  }
+
+  /**
+   * Clearing a time skips the stop: the trip runs past without calling.
+   * That is stored as the absence of a stop time, not as a blank one, so
+   * exports and the itinerary search treat it correctly rather than seeing
+   * a call at 00:00.
+   */
+  function setTime(call: TripCall, field: 'arrival_seconds' | 'departure_seconds', value: string) {
+    const cleared = !value.trim()
+    if (cleared) {
+      const other =
+        field === 'arrival_seconds' ? call.departure_seconds : call.arrival_seconds
+      // Clearing either box skips the stop; clearing one when the other is
+      // already blank is the same thing, so both routes converge here.
+      update(call.pattern_stop_id, {
+        skipped: true,
+        arrival_seconds: null,
+        departure_seconds: null,
+      })
+      void other
+      return
+    }
+    const patch: Partial<TripCall> = { [field]: value, skipped: false }
+    // Filling one box on a skipped stop revives it; mirror the value into
+    // the empty twin so the row is immediately valid.
+    if (call.skipped) {
+      patch.arrival_seconds = value
+      patch.departure_seconds = value
+    }
+    update(call.pattern_stop_id, patch)
+  }
+
+  function restore(call: TripCall) {
+    // Re-time a revived stop between its neighbours so it lands somewhere
+    // sensible instead of at midnight.
+    const index = calls.findIndex((c) => c.pattern_stop_id === call.pattern_stop_id)
+    const before = [...calls.slice(0, index)].reverse().find((c) => !c.skipped)
+    const after = calls.slice(index + 1).find((c) => !c.skipped)
+    const guess =
+      before && after
+        ? midpoint(before.departure_seconds, after.arrival_seconds)
+        : before?.departure_seconds ?? after?.arrival_seconds ?? '00:00:00'
+    update(call.pattern_stop_id, {
+      skipped: false,
+      arrival_seconds: guess,
+      departure_seconds: guess,
+    })
+  }
+
   async function save() {
-    if (!trip) return
     setError('')
     try {
       await api.patch(`/trips/${tripId}`, {
-        stop_times: (trip.stop_times ?? []).map((st) => ({
-          pattern_stop_id: st.pattern_stop_id,
-          arrival_seconds: times[st.pattern_stop_id]?.arrival ?? st.arrival_seconds,
-          departure_seconds: times[st.pattern_stop_id]?.departure ?? st.departure_seconds,
-          is_timepoint: st.is_timepoint,
-          pickup_type: st.pickup_type,
-          drop_off_type: st.drop_off_type,
-        })),
+        // Skipped stops are simply not sent.
+        stop_times: calls
+          .filter((call) => !call.skipped)
+          .map((call) => ({
+            pattern_stop_id: call.pattern_stop_id,
+            arrival_seconds: call.arrival_seconds,
+            departure_seconds: call.departure_seconds,
+            is_timepoint: call.is_timepoint,
+            pickup_type: call.pickup_type,
+            drop_off_type: call.drop_off_type,
+          })),
       })
       onSaved()
       onClose()
@@ -478,6 +555,8 @@ function TripEditor({
       setError(e instanceof ApiError ? e.message : String(e))
     }
   }
+
+  const servedCount = calls.filter((c) => !c.skipped).length
 
   async function applyShift() {
     setError('')
@@ -498,7 +577,7 @@ function TripEditor({
         canEdit ? (
           <>
             <button onClick={onClose}>Cancel</button>
-            <button className="primary" onClick={save}>
+            <button className="primary" onClick={save} disabled={servedCount < 2}>
               Save times
             </button>
           </>
@@ -536,6 +615,14 @@ function TripEditor({
             </div>
           )}
 
+          <p className="small muted">
+            Clear a stop's times to <strong>skip</strong> it — the trip runs
+            past without calling, which is how a limited-stop or short working
+            is built without cloning the pattern. Skipped stops show as “·” in
+            the grid and are left out of exports. Type a time back in to
+            restore the call.
+          </p>
+
           <div className="table-wrap">
             <table className="grid">
               <thead>
@@ -544,46 +631,72 @@ function TripEditor({
                   <th>Stop</th>
                   <th>Arrival</th>
                   <th>Departure</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {(trip.stop_times ?? []).map((st) => (
-                  <tr key={st.id}>
-                    <td className="num">{st.sequence}</td>
-                    <td>{st.location_name}</td>
+                {calls.map((call) => (
+                  <tr
+                    key={call.pattern_stop_id}
+                    style={call.skipped ? { opacity: 0.55 } : undefined}
+                  >
+                    <td className="num">{call.sequence}</td>
+                    <td>
+                      {call.location_name}
+                      {call.skipped && (
+                        <span className="tag grey" style={{ marginLeft: 6 }}>
+                          skipped
+                        </span>
+                      )}
+                    </td>
                     <td style={{ width: 120 }}>
                       <TimeInput
-                        value={times[st.pattern_stop_id]?.arrival ?? st.arrival_seconds}
-                        onChange={(v) =>
-                          setTimes((current) => ({
-                            ...current,
-                            [st.pattern_stop_id]: {
-                              arrival: v,
-                              departure: current[st.pattern_stop_id]?.departure ?? st.departure_seconds,
-                            },
-                          }))
-                        }
+                        value={call.skipped ? '' : call.arrival_seconds}
+                        placeholder="— skip —"
+                        onChange={(v) => setTime(call, 'arrival_seconds', v)}
                       />
                     </td>
                     <td style={{ width: 120 }}>
                       <TimeInput
-                        value={times[st.pattern_stop_id]?.departure ?? st.departure_seconds}
-                        onChange={(v) =>
-                          setTimes((current) => ({
-                            ...current,
-                            [st.pattern_stop_id]: {
-                              arrival: current[st.pattern_stop_id]?.arrival ?? st.arrival_seconds,
-                              departure: v,
-                            },
-                          }))
-                        }
+                        value={call.skipped ? '' : call.departure_seconds}
+                        placeholder="— skip —"
+                        onChange={(v) => setTime(call, 'departure_seconds', v)}
                       />
+                    </td>
+                    <td className="actions">
+                      {canEdit &&
+                        (call.skipped ? (
+                          <button className="small" onClick={() => restore(call)}>
+                            Call here
+                          </button>
+                        ) : (
+                          <button
+                            className="small"
+                            title="Skip this stop on this trip"
+                            onClick={() =>
+                              update(call.pattern_stop_id, {
+                                skipped: true,
+                                arrival_seconds: null,
+                                departure_seconds: null,
+                              })
+                            }
+                          >
+                            Skip
+                          </button>
+                        ))}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {servedCount < 2 && (
+            <Alert kind="err">
+              A trip must call at at least two stops; this one calls at{' '}
+              {servedCount}.
+            </Alert>
+          )}
         </>
       )}
     </Modal>

@@ -302,6 +302,64 @@ def test_a_block_from_another_board_is_rejected(client, auth):
     assert "different schedule board" in response.json()["detail"]
 
 
+def test_duty_card_expands_block_segments_into_legs(client, auth):
+    """A card saying only "drive block B01" is useless to a driver."""
+    from app.db import SessionLocal
+    from app.models import Duty
+    from app.services.duties import expand_for_card
+
+    # Put the whole block back on the duty so the card has something to show.
+    client.put(
+        f"{API}/duties/{roster['duty']}/pieces",
+        json={
+            "pieces": [
+                {
+                    "sequence": 1, "piece_type": "sign_on",
+                    "location_id": state["depot"],
+                    "start_seconds": "05:30", "end_seconds": "05:45",
+                },
+                {"sequence": 2, "piece_type": "block_segment", "block_id": state["block"]},
+                {
+                    "sequence": 3, "piece_type": "sign_off",
+                    "location_id": state["depot"],
+                    "start_seconds": "06:55", "end_seconds": "07:05",
+                },
+            ]
+        },
+        headers=auth,
+    )
+
+    db = SessionLocal()
+    try:
+        duty = db.get(Duty, roster["duty"])
+        events = expand_for_card(db, duty)
+    finally:
+        db.close()
+
+    assert [e.piece_type for e in events] == ["sign_on", "block_segment", "sign_off"]
+
+    drive = events[1]
+    # The block's five pieces: pull-out, trip, deadhead, trip, pull-in.
+    assert len(drive.legs) == 5
+    assert [leg.piece_type for leg in drive.legs] == [
+        "pull_out", "trip", "deadhead", "trip", "pull_in",
+    ]
+
+    # Trips carry their timepoints, including both termini.
+    first_trip = drive.legs[1]
+    assert first_trip.line_short_name == "T1"
+    names = [tp.name for tp in first_trip.timepoints]
+    assert names[0] == "Alpha" and names[-1] == "Charlie"
+    assert first_trip.timepoints[0].is_terminus is True
+
+    # Turnaround between the first trip ending 06:09:30 and the deadhead
+    # leaving at 06:10 is half a minute.
+    assert first_trip.turnaround_seconds == 30
+
+    # Sign-on and sign-off are plain events with no legs.
+    assert events[0].legs == []
+
+
 def test_duty_card_pdf_renders(client, auth):
     response = client.get(
         f"{API}/pdf/duty-card", params={"duty_id": roster["duty"]}, headers=auth

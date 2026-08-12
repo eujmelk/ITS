@@ -70,6 +70,7 @@ export default function BoardsPage() {
               <button className="small" onClick={() => setSelected(row)}>
                 Calendars
               </button>{' '}
+              <GtfsButton board={row} />{' '}
               {canEdit && <DuplicateButton board={row} onDone={reload} />}
             </>
           )}
@@ -78,6 +79,94 @@ export default function BoardsPage() {
 
       {selected && (
         <CalendarsPanel board={selected} onClose={() => setSelected(null)} />
+      )}
+    </>
+  )
+}
+
+/**
+ * GTFS export, gated behind a pre-flight check.
+ *
+ * A feed that a reader rejects is worse than no feed, so the problems are
+ * shown first — but exporting anyway is allowed, because a feed missing an
+ * agency URL is still useful for inspecting the data.
+ */
+function GtfsButton({ board }: { board: ScheduleVersion }) {
+  const [open, setOpen] = useState(false)
+  const [problems, setProblems] = useState<string[] | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function check() {
+    setOpen(true)
+    setError('')
+    setProblems(null)
+    try {
+      setProblems(await api.get<string[]>('/gtfs/validate', { schedule_version_id: board.id }))
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    }
+  }
+
+  async function download() {
+    setBusy(true)
+    setError('')
+    try {
+      await api.downloadBlob('/gtfs/export', `gtfs_${board.name.replace(/\W+/g, '_')}.zip`, {
+        schedule_version_id: board.id,
+      })
+      setOpen(false)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button className="small" onClick={check} title="Export a GTFS feed">
+        GTFS
+      </button>
+      {open && (
+        <Modal
+          title={`GTFS export — ${board.name}`}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <button onClick={() => setOpen(false)}>Cancel</button>
+              <button className="primary" onClick={download} disabled={busy}>
+                {busy ? 'Building…' : 'Download feed'}
+              </button>
+            </>
+          }
+        >
+          <Alert kind="err">{error}</Alert>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            A standards-compliant zip: stops, routes, trips, stop times,
+            calendars, transfers and fares. Only passenger-facing data — depots,
+            blocks and duties stay internal. Stop areas become GTFS parent
+            stations, and skipped stops are simply absent from
+            <code> stop_times.txt</code>.
+          </p>
+          {problems === null ? (
+            <p className="muted">Checking…</p>
+          ) : problems.length === 0 ? (
+            <div className="alert ok">No problems found — the feed is ready.</div>
+          ) : (
+            <>
+              <div className="alert info">
+                These will not stop the export, but a strict reader may reject
+                the feed:
+              </div>
+              {problems.map((problem, index) => (
+                <div key={index} className="issue warning">
+                  {problem}
+                </div>
+              ))}
+            </>
+          )}
+        </Modal>
       )}
     </>
   )

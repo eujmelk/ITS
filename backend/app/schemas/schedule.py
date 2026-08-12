@@ -184,8 +184,30 @@ class TripRead(TripBase, ORMModel):
     stop_count: int = 0
 
 
+class TripCall(BaseModel):
+    """One of the pattern's stops, as this trip treats it.
+
+    ``skipped`` means the trip has no stop time for that pattern stop: the
+    vehicle runs past without calling. Expressing a limited-stop working that
+    way avoids cloning the whole pattern just to omit two stops.
+    """
+
+    pattern_stop_id: int
+    sequence: int
+    location_id: int
+    location_name: str | None = None
+    is_timepoint: bool = False
+    skipped: bool = False
+    arrival_seconds: OptionalTimeStr = None
+    departure_seconds: OptionalTimeStr = None
+    pickup_type: BoardingType = BoardingType.REGULAR
+    drop_off_type: BoardingType = BoardingType.REGULAR
+
+
 class TripDetail(TripRead):
     stop_times: list[StopTimeRead] = []
+    #: Every stop on the pattern, called or skipped, in pattern order.
+    calls: list[TripCall] = []
 
 
 class TripGenerateRequest(BaseModel):

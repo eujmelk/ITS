@@ -13,7 +13,9 @@ from app.api import (
     settings as settings_api,
 )
 from app.config import settings
+from app.deps import DbSession
 from app.schemas.common import AppConfig
+from app.services.parameters import resolve_text
 
 api_router = APIRouter()
 
@@ -46,10 +48,15 @@ def health() -> dict:
     response_model=AppConfig,
     summary="Public runtime configuration",
 )
-def app_config() -> AppConfig:
-    """Read before login, so the map works on an air-gapped host too."""
+def app_config(db: DbSession) -> AppConfig:
+    """Read before login, so the map works on an air-gapped host too.
+
+    The instance name comes from the `instance_name` parameter -- editable on
+    the Settings page -- and falls back to the env var only if that row is
+    missing or blank, which is the case for one request during first startup.
+    """
     return AppConfig(
-        app_name=settings.app_name,
+        app_name=resolve_text(db, "instance_name", settings.app_name),
         map_tile_url=settings.map_tile_url,
         map_attribution=settings.map_attribution,
         map_default_lat=settings.map_default_lat,

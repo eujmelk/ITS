@@ -5,11 +5,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.deps import DbSession, ReaderUser, require_planner
+from app.enums import BoardingType
 from app.models import (
     Block,
     Calendar,
     CalendarException,
     Line,
+    Location,
     Pattern,
     PatternStop,
     ScheduleVersion,
@@ -17,6 +19,7 @@ from app.models import (
     Trip,
 )
 from app.schemas.schedule import (
+    TripCall,
     CalendarCreate,
     CalendarExceptionCreate,
     CalendarExceptionRead,
@@ -293,6 +296,41 @@ def serialize_trip_detail(obj: Trip, db: Session) -> TripDetail:
             key=lambda st: st.pattern_stop.sequence if st.pattern_stop else 0,
         )
     ]
+
+    # Every stop the pattern defines, whether this trip calls there or not,
+    # so the editor can show a skipped stop rather than silently omitting it.
+    called = {st.pattern_stop_id: st for st in obj.stop_times}
+    pattern_stops = db.execute(
+        select(
+            PatternStop.id,
+            PatternStop.sequence,
+            PatternStop.location_id,
+            Location.name,
+            PatternStop.is_timepoint,
+        )
+        .join(Location, PatternStop.location_id == Location.id)
+        .where(PatternStop.pattern_id == obj.pattern_id)
+        .order_by(PatternStop.sequence)
+    ).all()
+
+    calls: list[TripCall] = []
+    for ps_id, sequence, location_id, location_name, is_timepoint in pattern_stops:
+        stop_time = called.get(ps_id)
+        calls.append(
+            TripCall(
+                pattern_stop_id=ps_id,
+                sequence=sequence,
+                location_id=location_id,
+                location_name=location_name,
+                is_timepoint=stop_time.is_timepoint if stop_time else is_timepoint,
+                skipped=stop_time is None,
+                arrival_seconds=stop_time.arrival_seconds if stop_time else None,
+                departure_seconds=stop_time.departure_seconds if stop_time else None,
+                pickup_type=stop_time.pickup_type if stop_time else BoardingType.REGULAR,
+                drop_off_type=stop_time.drop_off_type if stop_time else BoardingType.REGULAR,
+            )
+        )
+    data.calls = calls
     return data
 
 

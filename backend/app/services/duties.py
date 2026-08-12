@@ -142,6 +142,203 @@ def resolve_duty(db: Session, duty: Duty) -> list[ResolvedPiece]:
 
 
 @dataclass
+class CardTimepoint:
+    name: str
+    arrival: int | None
+    departure: int | None
+    is_terminus: bool = False
+
+
+@dataclass
+class CardLeg:
+    """One piece of a block, as it appears on a printed duty card."""
+
+    block_sequence: int
+    piece_type: str
+    line_short_name: str | None = None
+    headsign: str | None = None
+    from_name: str | None = None
+    to_name: str | None = None
+    start_seconds: int | None = None
+    end_seconds: int | None = None
+    timepoints: list[CardTimepoint] = field(default_factory=list)
+    #: Idle time before the *next* leg -- the turnaround at a terminus.
+    turnaround_seconds: int | None = None
+
+    @property
+    def duration(self) -> int:
+        if self.start_seconds is None or self.end_seconds is None:
+            return 0
+        return max(0, self.end_seconds - self.start_seconds)
+
+
+@dataclass
+class CardEvent:
+    """A duty piece, with its legs when it is a block segment."""
+
+    sequence: int
+    piece_type: str
+    start_seconds: int | None
+    end_seconds: int | None
+    where: str
+    detail: str = ""
+    block_name: str | None = None
+    legs: list[CardLeg] = field(default_factory=list)
+
+    @property
+    def duration(self) -> int:
+        if self.start_seconds is None or self.end_seconds is None:
+            return 0
+        return max(0, self.end_seconds - self.start_seconds)
+
+
+def expand_for_card(db: Session, duty: Duty) -> list[CardEvent]:
+    """Resolve a duty down to what a driver actually needs on paper.
+
+    A block segment on screen is one row saying "drive block B01". On a card
+    that is useless: the driver needs the trips inside it, the timepoints along
+    each trip, where the deadheads go and how long the turnarounds are. This
+    expands the segment into those legs.
+    """
+    resolved = resolve_duty(db, duty)
+    if not resolved:
+        return []
+
+    block_ids = {r.piece.block_id for r in resolved if r.piece.block_id is not None}
+    pieces_by_block: dict[int, list[BlockPiece]] = {}
+    endpoints: dict[int, dict[int, block_service.Endpoints]] = {}
+    if block_ids:
+        blocks = db.scalars(
+            select(Block)
+            .where(Block.id.in_(block_ids))
+            .options(selectinload(Block.pieces))
+        ).all()
+        for block in blocks:
+            ordered = sorted(block.pieces, key=lambda p: p.sequence)
+            pieces_by_block[block.id] = ordered
+            endpoints[block.id] = block_service.resolve_pieces(db, ordered)
+
+    trip_ids = [
+        piece.trip_id
+        for pieces in pieces_by_block.values()
+        for piece in pieces
+        if piece.trip_id is not None
+    ]
+    timepoints = _trip_timepoints(db, trip_ids)
+
+    events: list[CardEvent] = []
+    for entry in resolved:
+        piece = entry.piece
+        if piece.piece_type != DutyPieceType.BLOCK_SEGMENT.value or not piece.block_id:
+            events.append(
+                CardEvent(
+                    sequence=piece.sequence,
+                    piece_type=piece.piece_type,
+                    start_seconds=entry.start_seconds,
+                    end_seconds=entry.end_seconds,
+                    where=entry.location_name or "—",
+                    detail=piece.notes or "",
+                )
+            )
+            continue
+
+        block_pieces = pieces_by_block.get(piece.block_id, [])
+        ends = endpoints.get(piece.block_id, {})
+        wanted = set(entry.covered_sequences)
+        covered = [bp for bp in block_pieces if bp.sequence in wanted]
+
+        legs: list[CardLeg] = []
+        for block_piece in covered:
+            endpoint = ends.get(block_piece.id, block_service.Endpoints())
+            leg = CardLeg(
+                block_sequence=block_piece.sequence,
+                piece_type=block_piece.piece_type,
+                line_short_name=endpoint.line_short_name,
+                headsign=endpoint.headsign,
+                from_name=endpoint.from_location_name,
+                to_name=endpoint.to_location_name,
+                start_seconds=endpoint.start_seconds,
+                end_seconds=endpoint.end_seconds,
+                timepoints=timepoints.get(block_piece.trip_id or -1, []),
+            )
+            legs.append(leg)
+
+        # Turnaround: the gap before the next leg the driver still covers.
+        for current, following in zip(legs, legs[1:]):
+            if current.end_seconds is not None and following.start_seconds is not None:
+                gap = following.start_seconds - current.end_seconds
+                current.turnaround_seconds = gap if gap > 0 else None
+
+        events.append(
+            CardEvent(
+                sequence=piece.sequence,
+                piece_type=piece.piece_type,
+                start_seconds=entry.start_seconds,
+                end_seconds=entry.end_seconds,
+                where=" → ".join(
+                    filter(None, [entry.from_location_name, entry.to_location_name])
+                ),
+                detail=piece.notes or "",
+                block_name=entry.block_name,
+                legs=legs,
+            )
+        )
+
+    return events
+
+
+def _trip_timepoints(db: Session, trip_ids: list[int]) -> dict[int, list[CardTimepoint]]:
+    """Timepoints for each trip, always including its first and last call.
+
+    A driver checks their running against timepoints, but the origin and
+    destination matter whether or not anyone flagged them.
+    """
+    if not trip_ids:
+        return {}
+
+    from app.models import Location, PatternStop, StopTime
+
+    rows = db.execute(
+        select(
+            StopTime.trip_id,
+            PatternStop.sequence,
+            Location.name,
+            StopTime.arrival_seconds,
+            StopTime.departure_seconds,
+            StopTime.is_timepoint,
+        )
+        .join(PatternStop, StopTime.pattern_stop_id == PatternStop.id)
+        .join(Location, PatternStop.location_id == Location.id)
+        .where(StopTime.trip_id.in_(set(trip_ids)))
+        .order_by(StopTime.trip_id, PatternStop.sequence)
+    ).all()
+
+    by_trip: dict[int, list] = {}
+    for row in rows:
+        by_trip.setdefault(row[0], []).append(row)
+
+    result: dict[int, list[CardTimepoint]] = {}
+    for trip_id, calls in by_trip.items():
+        if not calls:
+            continue
+        chosen = []
+        for index, (_tid, _seq, name, arrival, departure, is_timepoint) in enumerate(calls):
+            terminus = index == 0 or index == len(calls) - 1
+            if not (is_timepoint or terminus):
+                continue
+            chosen.append(
+                CardTimepoint(
+                    name=name,
+                    arrival=arrival,
+                    departure=departure,
+                    is_terminus=terminus,
+                )
+            )
+        result[trip_id] = chosen
+    return result
+
+
+@dataclass
 class DutySummary:
     start_seconds: int | None = None
     end_seconds: int | None = None

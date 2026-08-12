@@ -29,6 +29,17 @@ _env = Environment(
 _env.filters["hhmm"] = lambda seconds: format_hhmm(seconds) or ""
 
 
+def _hours_minutes(minutes: int | None) -> str:
+    """45 -> "45m"; 95 -> "1h 35m". Reads faster than a raw minute count."""
+    if not minutes:
+        return "0m"
+    hours, rest = divmod(int(minutes), 60)
+    return f"{hours}h {rest}m" if hours else f"{rest}m"
+
+
+_env.filters["hm"] = _hours_minutes
+
+
 def render_timetable_pdf(
     timetable: Timetable,
     board_name: str,
@@ -56,9 +67,9 @@ def render_timetable_pdf(
     return HTML(string=html).write_pdf()
 
 
-#: Row labels for a duty card. Kept here rather than in the template so the
-#: template stays free of piece-type logic.
-_DUTY_LABELS = {
+#: Heading and CSS class per duty piece type, kept out of the template so it
+#: stays free of piece-type logic.
+_DUTY_EVENTS = {
     "block_segment": ("Drive", ""),
     "break": ("Break", "brk"),
     "sign_on": ("Sign on", "sign"),
@@ -68,55 +79,51 @@ _DUTY_LABELS = {
 
 def render_duty_card_pdf(
     duty,
-    resolved,
+    events,
     summary,
     issues,
     driver_name: str | None,
+    driver_code: str | None,
     board_name: str,
+    agency_name: str,
 ) -> bytes:
+    """Letter portrait, one duty per card.
+
+    ``events`` comes from :func:`app.services.duties.expand_for_card`, so a
+    block segment arrives already broken down into its trips, deadheads and
+    turnarounds rather than as a single "drive block B01" line.
+    """
     from weasyprint import HTML
 
-    rows = []
-    for entry in resolved:
-        piece_type = entry.piece.piece_type
-        label, badge = _DUTY_LABELS.get(piece_type, (piece_type, ""))
-        if piece_type == "block_segment":
-            where = f"Block {entry.block_name or '?'}"
-            detail = " → ".join(
-                filter(None, [entry.from_location_name, entry.to_location_name])
-            )
-            if entry.covered_sequences:
-                span = (
-                    f"pieces {entry.covered_sequences[0]}–{entry.covered_sequences[-1]}"
-                )
-                detail = f"{detail} ({span})" if detail else span
-        else:
-            where = entry.location_name or "—"
-            detail = entry.piece.notes or ""
-
-        rows.append(
+    rendered = []
+    for event in events:
+        title, css = _DUTY_EVENTS.get(event.piece_type, (event.piece_type, ""))
+        rendered.append(
             {
-                "sequence": entry.piece.sequence,
-                "start": entry.start_seconds,
-                "end": entry.end_seconds,
-                "label": label,
-                "badge": badge,
-                "css": {"break": "break", "sign_on": "signon", "sign_off": "signoff"}.get(
-                    piece_type, ""
-                ),
-                "where": where,
-                "detail": detail,
+                "sequence": event.sequence,
+                "piece_type": event.piece_type,
+                "title": title,
+                "css": css,
+                "start_seconds": event.start_seconds,
+                "end_seconds": event.end_seconds,
+                "minutes": event.duration // 60,
+                "where": event.where,
+                "detail": event.detail,
+                "block_name": event.block_name,
+                "legs": event.legs,
             }
         )
 
     html = _env.get_template("duty_card.html").render(
         duty=duty,
-        rows=rows,
+        events=rendered,
         summary=summary,
         # Info-level notes are useful on screen but noise on a printed card.
         issues=[i for i in issues if i.severity in ("error", "warning")],
         driver_name=driver_name,
+        driver_code=driver_code,
         board_name=board_name,
+        agency_name=agency_name,
         generated_at=dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
     return HTML(string=html).write_pdf()

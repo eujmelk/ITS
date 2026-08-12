@@ -167,6 +167,23 @@ export interface StopTime {
   location_name: string | null
 }
 
+/**
+ * One of the pattern's stops, as a given trip treats it. `skipped` means the
+ * trip has no stop time there — it runs past without calling.
+ */
+export interface TripCall {
+  pattern_stop_id: number
+  sequence: number
+  location_id: number
+  location_name: string | null
+  is_timepoint: boolean
+  skipped: boolean
+  arrival_seconds: string | null
+  departure_seconds: string | null
+  pickup_type: string
+  drop_off_type: string
+}
+
 export interface Trip {
   id: number
   schedule_version_id: number
@@ -187,6 +204,7 @@ export interface Trip {
   end_seconds: string | null
   stop_count: number
   stop_times?: StopTime[]
+  calls?: TripCall[]
 }
 
 export interface Timetable {
@@ -406,4 +424,6 @@ export interface Parameter {
   value_type: 'int' | 'float' | 'bool' | 'string'
   description: string | null
   unit: string | null
+  /** 'identity' = who this instance is; 'operating' = the roster rules. */
+  category: string
 }

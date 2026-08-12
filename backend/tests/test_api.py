@@ -568,6 +568,25 @@ def test_a_deadhead_piece_needs_its_endpoints(client, auth):
     assert response.status_code == 422
 
 
+def test_timetable_prints_every_stop_by_default(client, auth):
+    """Bravo is not a timepoint, but it must still appear on the printed sheet.
+
+    The grid the PDF is built from is the same one the UI shows, so this
+    covers both.
+    """
+    base = {"schedule_version_id": state["board"], "pattern_id": state["pattern"]}
+
+    full = client.get(f"{API}/timetables", params=base, headers=auth).json()
+    assert [r["location_name"] for r in full["rows"]] == ["Alpha", "Bravo", "Charlie"]
+    assert [r["is_timepoint"] for r in full["rows"]] == [True, False, True]
+
+    # The old behaviour is still available, and still keeps the termini.
+    condensed = client.get(
+        f"{API}/timetables", params={**base, "timepoints_only": True}, headers=auth
+    ).json()
+    assert [r["location_name"] for r in condensed["rows"]] == ["Alpha", "Charlie"]
+
+
 def test_pdf_timetable_renders(client, auth):
     response = client.get(
         f"{API}/pdf/timetable",

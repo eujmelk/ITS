@@ -286,6 +286,7 @@ export function CrudTable<T extends Record<string, any>>({
   wideModal,
   editable = true,
   defaultPageSize = 50,
+  refreshToken,
 }: {
   endpoint: string
   columns: Column<T>[]
@@ -302,6 +303,15 @@ export function CrudTable<T extends Record<string, any>>({
   wideModal?: boolean
   editable?: boolean
   defaultPageSize?: number
+  /**
+   * Bump this to force a refetch after something *outside* the table changed
+   * a row — a pattern's stop list, a block's pieces, a location's attributes.
+   * Those are edited in their own modals, so the table has no way to know its
+   * `stop_count` or `piece_count` just went stale, and the row would keep
+   * showing the old value (and hand the old data back to the editor) until
+   * the page was reloaded.
+   */
+  refreshToken?: number | string
 }) {
   const { canEdit } = useApp()
   const [query, setQuery] = useState('')
@@ -344,7 +354,7 @@ export function CrudTable<T extends Record<string, any>>({
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endpoint, paramKey, debouncedQuery, sort, order, limit, offset])
+  }, [endpoint, paramKey, debouncedQuery, sort, order, limit, offset, refreshToken])
 
   useEffect(() => {
     reload()

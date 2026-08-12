@@ -135,13 +135,22 @@ export default function LocationsPage() {
               entityName="Location"
               columns={columns}
               fields={fields}
+              refreshToken={reloadKey}
               defaults={{ location_type: 'stop', is_active: true }}
               onChanged={() => {
                 reloadLocations()
                 setReloadKey((k) => k + 1)
               }}
               extraRowActions={(row) =>
-                canEdit ? <AttributesButton location={row} onSaved={reloadLocations} /> : null
+                canEdit ? (
+                  <AttributesButton
+                    location={row}
+                    onSaved={() => {
+                      reloadLocations()
+                      setReloadKey((k) => k + 1)
+                    }}
+                  />
+                ) : null
               }
             />
           </Panel>

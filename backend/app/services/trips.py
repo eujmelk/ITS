@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import Calendar, Line, Pattern, PatternStop, ScheduleVersion, StopTime, Trip
 from app.schemas.schedule import StopTimeBase, TripCreate, TripGenerateRequest
 from app.services.crud import check_exists
-from app.timeutil import MAX_SERVICE_SECONDS
+from app.timeutil import MAX_SERVICE_SECONDS, format_time
 
 
 def generate_stop_times(
@@ -84,9 +84,52 @@ def _validate_pattern_stops(db: Session, pattern_id: int, times: list[StopTimeBa
         )
 
 
+def _validate_ordering(db: Session, pattern_id: int, times: list[StopTimeBase]) -> None:
+    """A trip must still call somewhere, in the pattern's order.
+
+    Skipping stops is allowed; skipping so many that nothing is left, or
+    entering times that run backwards along the route, is not -- both would
+    produce a timetable column nobody can read.
+    """
+    if len(times) < 2:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "A trip must call at at least two stops. Skip fewer stops, or "
+            "delete the trip.",
+        )
+
+    sequences = {
+        ps_id: sequence
+        for ps_id, sequence in db.execute(
+            select(PatternStop.id, PatternStop.sequence).where(
+                PatternStop.pattern_id == pattern_id
+            )
+        ).all()
+    }
+    ordered = sorted(times, key=lambda t: sequences.get(t.pattern_stop_id, 0))
+
+    for previous, current in zip(ordered, ordered[1:]):
+        if current.arrival_seconds < previous.departure_seconds:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Stop {sequences.get(current.pattern_stop_id)} arrives at "
+                f"{format_time(current.arrival_seconds)}, before stop "
+                f"{sequences.get(previous.pattern_stop_id)} is departed at "
+                f"{format_time(previous.departure_seconds)}. Times must run "
+                "forwards along the route.",
+            )
+
+
 def set_stop_times(db: Session, trip: Trip, times: list[StopTimeBase]) -> None:
-    """Replace a trip's stop times wholesale."""
+    """Replace a trip's stop times wholesale.
+
+    A pattern stop with no row here is **skipped** by this trip: the vehicle
+    runs past without calling. That is how a limited-stop or short-working
+    journey is expressed without needing a separate pattern, and the timetable
+    grid renders the gap as a dot.
+    """
     _validate_pattern_stops(db, trip.pattern_id, times)
+    _validate_ordering(db, trip.pattern_id, times)
 
     for existing in list(trip.stop_times):
         db.delete(existing)

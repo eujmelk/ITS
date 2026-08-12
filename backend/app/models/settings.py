@@ -22,3 +22,6 @@ class Parameter(TimestampMixin, Base):
     value_type: Mapped[str] = mapped_column(String(16), default="int")
     description: Mapped[str | None] = mapped_column(Text, default=None)
     unit: Mapped[str | None] = mapped_column(String(32), default=None)
+    #: Groups the Settings page. 'identity' is who this instance is;
+    #: 'operating' is the driving/break rules the roster validates against.
+    category: Mapped[str] = mapped_column(String(32), default="operating")

@@ -2,99 +2,216 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Duty {{ duty.name }}</title>
+<title>Duty {{ duty.name }} — {{ duty.date }}</title>
 <style>
   @page {
-    size: A5 landscape;
-    margin: 10mm;
+    size: Letter portrait;
+    margin: 14mm 13mm 15mm 13mm;
+    @bottom-left {
+      content: "{{ agency_name }} · duty {{ duty.name }} · {{ duty.date }}";
+      font: 7.5pt "DejaVu Sans", sans-serif; color: #777;
+    }
     @bottom-right {
       content: "Page " counter(page) " of " counter(pages);
-      font: 7pt "DejaVu Sans", sans-serif; color: #777;
+      font: 7.5pt "DejaVu Sans", sans-serif; color: #777;
     }
   }
-  body { font-family: "DejaVu Sans", sans-serif; font-size: 8.5pt; color: #111; }
-  header { border-bottom: 2px solid #1f4e79; padding-bottom: 5px; margin-bottom: 8px; }
-  h1 { font-size: 14pt; margin: 0; display: inline-block; }
-  .who { float: right; text-align: right; font-size: 9pt; }
-  .who strong { font-size: 11pt; }
-  .meta { clear: both; color: #555; font-size: 7.5pt; margin-top: 4px; }
-  .totals { margin: 7px 0; }
-  .totals span {
-    display: inline-block; border: 1px solid #ddd; border-radius: 3px;
-    padding: 2px 7px; margin-right: 5px; font-size: 8pt;
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 9pt; color: #111; }
+
+  /* ------------------------------------------------------------- header */
+  header {
+    border-bottom: 2.5px solid #1f4e79;
+    padding-bottom: 7px; margin-bottom: 10px;
   }
-  .totals b { font-size: 10pt; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { padding: 3px 5px; border-bottom: 1px solid #e2e2e2; text-align: left; }
-  th { font-size: 7pt; text-transform: uppercase; letter-spacing: .4px; color: #666; }
-  td.time { font-variant-numeric: tabular-nums; white-space: nowrap; width: 52px; }
-  tr.break td { background: #fdf5e6; font-style: italic; }
-  tr.signon td, tr.signoff td { background: #eef3f8; }
-  .kind {
-    display: inline-block; padding: 0 5px; border-radius: 2px;
-    background: #1f4e79; color: #fff; font-size: 7pt;
+  .agency { font-size: 8pt; color: #666; letter-spacing: .6px; text-transform: uppercase; }
+  h1 { font-size: 18pt; margin: 2px 0 0; }
+  h1 small { font-size: 10pt; font-weight: normal; color: #555; margin-left: 6px; }
+  .who {
+    float: right; text-align: right; border: 1px solid #ccc; border-radius: 3px;
+    padding: 5px 10px; min-width: 44mm;
   }
-  .kind.brk { background: #a86400; }
-  .kind.sign { background: #667085; }
-  .issues { margin-top: 8px; font-size: 7.5pt; }
-  .issue { padding: 2px 5px; border-left: 3px solid #999; margin-bottom: 2px; }
+  .who .name { font-size: 12pt; font-weight: bold; }
+  .who .date { font-size: 9pt; color: #444; }
+  .who .code { font-size: 7.5pt; color: #777; }
+
+  /* -------------------------------------------------------- information */
+  .info { clear: both; display: table; width: 100%; margin-bottom: 11px; }
+  .info div {
+    display: table-cell; border: 1px solid #ddd; padding: 4px 8px;
+    text-align: center; width: 20%;
+  }
+  .info .k { font-size: 7pt; text-transform: uppercase; letter-spacing: .5px; color: #777; }
+  .info .v { font-size: 12pt; font-weight: bold; font-variant-numeric: tabular-nums; }
+  .info .v.warn { color: #a86400; }
+
+  /* -------------------------------------------------------------- events */
+  h2 {
+    font-size: 9pt; text-transform: uppercase; letter-spacing: .7px;
+    color: #555; margin: 12px 0 5px; border-bottom: 1px solid #ddd;
+    padding-bottom: 2px;
+  }
+  .event { margin-bottom: 7px; page-break-inside: avoid; }
+  .event-head {
+    display: table; width: 100%; background: #eef3f8;
+    border-left: 3px solid #1f4e79; padding: 3px 7px;
+  }
+  .event-head.brk { background: #fdf5e6; border-left-color: #a86400; }
+  .event-head.sign { background: #f2f4f6; border-left-color: #667085; }
+  .event-head .t {
+    display: table-cell; width: 34mm; font-variant-numeric: tabular-nums;
+    font-weight: bold; font-size: 10pt;
+  }
+  .event-head .l { display: table-cell; font-size: 10pt; font-weight: bold; }
+  .event-head .r {
+    display: table-cell; text-align: right; font-size: 8pt; color: #555;
+    width: 30mm;
+  }
+
+  table.legs { border-collapse: collapse; width: 100%; margin-top: 2px; }
+  table.legs td { padding: 2.5px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+  td.tm {
+    width: 32mm; font-variant-numeric: tabular-nums; white-space: nowrap;
+    font-weight: bold;
+  }
+  td.kind { width: 22mm; }
+  .badge {
+    display: inline-block; padding: 0 5px; border-radius: 2px; font-size: 7pt;
+    background: #1f4e79; color: #fff; text-transform: uppercase; letter-spacing: .3px;
+  }
+  .badge.dead { background: #667085; }
+  .badge.pull { background: #a3541a; }
+  .line {
+    display: inline-block; background: #1f4e79; color: #fff; font-weight: bold;
+    padding: 0 6px; border-radius: 2px; margin-right: 4px;
+  }
+  .tps { margin-top: 2px; font-size: 8pt; color: #333; }
+  .tps span { margin-right: 9px; white-space: nowrap; }
+  .tps b { font-variant-numeric: tabular-nums; }
+  .tps .term { color: #1f4e79; }
+  .turn {
+    font-size: 7.5pt; color: #a86400; font-style: italic; padding-left: 32mm;
+  }
+  .empty { color: #888; font-style: italic; }
+
+  /* -------------------------------------------------------------- issues */
+  .issues { margin-top: 12px; page-break-inside: avoid; }
+  .issue { padding: 3px 7px; border-left: 3px solid #999; margin-bottom: 3px; font-size: 8pt; }
   .issue.error { border-color: #b42318; background: #fdecea; }
   .issue.warning { border-color: #a86400; background: #fdf5e6; }
-  .foot { margin-top: 9px; font-size: 7pt; color: #777; }
+  .foot { margin-top: 12px; font-size: 7.5pt; color: #777; border-top: 1px solid #eee; padding-top: 5px; }
+  .sig { margin-top: 16px; font-size: 8pt; color: #555; }
+  .sig span { display: inline-block; border-top: 1px solid #999; width: 62mm; padding-top: 3px; margin-right: 12mm; }
 </style>
 </head>
 <body>
+
 <header>
   <div class="who">
-    <strong>{{ driver_name or "Unassigned" }}</strong><br>
-    {{ duty.date }}
+    <div class="name">{{ driver_name or "UNASSIGNED" }}</div>
+    <div class="date">{{ duty.date }}</div>
+    {% if driver_code %}<div class="code">Staff {{ driver_code }}</div>{% endif %}
   </div>
-  <h1>Duty {{ duty.name }}</h1>
-  <div class="meta">{{ board_name }}{% if duty.notes %} · {{ duty.notes }}{% endif %}</div>
+  <div class="agency">{{ agency_name }}</div>
+  <h1>Duty {{ duty.name }}<small>{{ board_name }}</small></h1>
 </header>
 
-<div class="totals">
-  <span>Sign on <b>{{ summary.start_seconds | hhmm }}</b></span>
-  <span>Sign off <b>{{ summary.end_seconds | hhmm }}</b></span>
-  <span>Spread <b>{{ summary.working_minutes // 60 }}h {{ summary.working_minutes % 60 }}m</b></span>
-  <span>Driving <b>{{ summary.driving_minutes // 60 }}h {{ summary.driving_minutes % 60 }}m</b></span>
-  <span>Break <b>{{ summary.break_minutes }}m</b></span>
+<div class="info">
+  <div><div class="k">Sign on</div><div class="v">{{ summary.start_seconds | hhmm }}</div></div>
+  <div><div class="k">Sign off</div><div class="v">{{ summary.end_seconds | hhmm }}</div></div>
+  <div><div class="k">Spread</div><div class="v">{{ summary.working_minutes | hm }}</div></div>
+  <div><div class="k">Driving</div><div class="v">{{ summary.driving_minutes | hm }}</div></div>
+  <div>
+    <div class="k">Break</div>
+    <div class="v {{ 'warn' if summary.break_minutes == 0 else '' }}">
+      {{ summary.break_minutes }}m
+    </div>
+  </div>
 </div>
 
-<table>
-  <thead>
-    <tr>
-      <th>#</th><th>From</th><th>To</th><th>What</th><th>Where / block</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in rows %}
-    <tr class="{{ row.css }}">
-      <td>{{ row.sequence }}</td>
-      <td class="time">{{ row.start | hhmm }}</td>
-      <td class="time">{{ row.end | hhmm }}</td>
-      <td><span class="kind {{ row.badge }}">{{ row.label }}</span></td>
-      <td>
-        {{ row.where }}
-        {%- if row.detail %} <span style="color:#666">— {{ row.detail }}</span>{% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% if duty.notes %}<p style="margin:0 0 9px"><strong>Note:</strong> {{ duty.notes }}</p>{% endif %}
+
+<h2>Duty detail</h2>
+
+{% if not events %}
+  <p class="empty">This duty has no pieces.</p>
+{% endif %}
+
+{% for event in events %}
+<div class="event">
+  <div class="event-head {{ event.css }}">
+    <div class="t">{{ event.start_seconds | hhmm }} – {{ event.end_seconds | hhmm }}</div>
+    <div class="l">
+      {{ event.title }}
+      {%- if event.block_name %} <span style="font-weight:normal">· block {{ event.block_name }}</span>{% endif %}
+    </div>
+    <div class="r">{{ event.minutes | hm }}</div>
+  </div>
+
+  {% if event.legs %}
+    <table class="legs">
+      {% for leg in event.legs %}
+      <tr>
+        <td class="tm">{{ leg.start_seconds | hhmm }} – {{ leg.end_seconds | hhmm }}</td>
+        <td class="kind">
+          {% if leg.piece_type == 'trip' %}
+            <span class="badge">trip</span>
+          {% elif leg.piece_type == 'deadhead' %}
+            <span class="badge dead">empty</span>
+          {% else %}
+            <span class="badge pull">{{ leg.piece_type | replace('_', '-') }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if leg.line_short_name %}<span class="line">{{ leg.line_short_name }}</span>{% endif %}
+          {%- if leg.headsign %}{{ leg.headsign }}{% else %}{{ leg.from_name }} → {{ leg.to_name }}{% endif %}
+          {% if leg.timepoints %}
+            <div class="tps">
+              {% for tp in leg.timepoints %}
+                <span class="{{ 'term' if tp.is_terminus else '' }}">
+                  {{ tp.name }} <b>{{ (tp.departure or tp.arrival) | hhmm }}</b>
+                </span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% if leg.turnaround_seconds %}
+      <tr><td colspan="3" class="turn">
+        turnaround {{ (leg.turnaround_seconds // 60) }} min at {{ leg.to_name }}
+      </td></tr>
+      {% endif %}
+      {% endfor %}
+    </table>
+  {% elif event.where and event.where != '—' %}
+    <table class="legs">
+      <tr>
+        <td class="tm"></td>
+        <td class="kind"></td>
+        <td>at {{ event.where }}{% if event.detail %} — {{ event.detail }}{% endif %}</td>
+      </tr>
+    </table>
+  {% endif %}
+</div>
+{% endfor %}
 
 {% if issues %}
 <div class="issues">
-  <strong>Rule check</strong>
+  <h2>Rule check</h2>
   {% for issue in issues %}
     <div class="issue {{ issue.severity }}">{{ issue.message }}</div>
   {% endfor %}
 </div>
 {% endif %}
 
+<div class="sig">
+  <span>Driver signature</span><span>Supervisor</span>
+</div>
+
 <p class="foot">
   Times are on the service-day clock; anything past 24:00 falls on the
-  following morning. Generated {{ generated_at }}.
+  following morning. Bold times on a trip are its timepoints and termini.
+  Generated {{ generated_at }}.
 </p>
+
 </body>
 </html>

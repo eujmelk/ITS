@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import type { Line, Location, Pattern, PatternStop } from '../api/types'
 import { CrudTable, useList } from '../components/Crud'
@@ -14,6 +14,9 @@ const MODES = ['bus', 'tram', 'metro', 'rail', 'ferry', 'other']
 export default function LinesPage() {
   const { canEdit } = useApp()
   const [selectedLine, setSelectedLine] = useState<Line | null>(null)
+  // Attributes are edited in a modal, so the table is told when the summary
+  // column it shows has gone stale.
+  const [linesToken, setLinesToken] = useState(0)
   // CrudTable owns its own paged fetch; nothing else on this page needs the
   // full list of lines.
   const columns: Column<Line>[] = [
@@ -83,12 +86,18 @@ export default function LinesPage() {
           columns={columns}
           fields={fields}
           defaults={{ mode: 'bus', is_active: true, sort_order: 0 }}
+          refreshToken={linesToken}
           extraRowActions={(row) => (
             <>
               <button className="small" onClick={() => setSelectedLine(row)}>
                 Patterns
               </button>{' '}
-              {canEdit && <LineAttributesButton line={row} onSaved={() => setSelectedLine(null)} />}
+              {canEdit && (
+                <LineAttributesButton
+                  line={row}
+                  onSaved={() => setLinesToken((n) => n + 1)}
+                />
+              )}
             </>
           )}
         />
@@ -158,8 +167,11 @@ function LineAttributesButton({ line, onSaved }: { line: Line; onSaved: () => vo
 function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
   const { canEdit } = useApp()
   const params = useMemo(() => ({ line_id: line.id }), [line.id])
-  const { items: patterns, reload } = useList<Pattern>('/patterns', params)
   const [editingStops, setEditingStops] = useState<Pattern | null>(null)
+  // Editing a pattern's stops happens in a modal the table knows nothing
+  // about, so the table is told explicitly to refetch afterwards.
+  const [refreshToken, setRefreshToken] = useState(0)
+  const reload = () => setRefreshToken((n) => n + 1)
 
   return (
     <Panel
@@ -175,8 +187,8 @@ function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
         entityName="Pattern"
         params={params}
         searchable={false}
+        refreshToken={refreshToken}
         defaults={{ line_id: line.id, direction: 0 }}
-        onChanged={reload}
         columns={[
           { key: 'name', label: 'Pattern' },
           {
@@ -238,10 +250,7 @@ function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
         <PatternStopsEditor
           pattern={editingStops}
           onClose={() => setEditingStops(null)}
-          onSaved={() => {
-            setEditingStops(null)
-            reload()
-          }}
+          onSaved={reload}
         />
       )}
     </Panel>
@@ -260,8 +269,18 @@ function PatternStopsEditor({
   const { canEdit } = useApp()
   const [rows, setRows] = useState<PatternStop[]>(pattern.stops ?? [])
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const stopParams = useMemo(() => ({ location_type: 'stop' }), [])
+
+  // Re-seed when a different pattern is opened. `useState` only reads its
+  // initial value once, so without this the editor would keep showing the
+  // first pattern's stops.
+  useEffect(() => {
+    setRows(pattern.stops ?? [])
+    setSaved(false)
+    setError('')
+  }, [pattern.id, pattern.stops])
 
   function move(index: number, delta: number) {
     const target = index + delta
@@ -278,8 +297,11 @@ function PatternStopsEditor({
   async function save() {
     setSaving(true)
     setError('')
+    setSaved(false)
     try {
-      await api.put(`/patterns/${pattern.id}/stops`, {
+      // The response is the saved pattern, so local state is replaced with
+      // what the server actually stored rather than what we hoped it would.
+      const updated = await api.put<Pattern>(`/patterns/${pattern.id}/stops`, {
         stops: rows.map((row, index) => ({
           location_id: row.location_id,
           sequence: index + 1,
@@ -294,6 +316,9 @@ function PatternStopsEditor({
           drop_off_type: row.drop_off_type || 'regular',
         })),
       })
+      setRows(updated.stops ?? [])
+      setSaved(true)
+      // Tell the pattern table its stop_count is now out of date.
       onSaved()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -331,6 +356,7 @@ function PatternStopsEditor({
       }
     >
       <Alert kind="err">{error}</Alert>
+      {saved && <Alert kind="ok">Stop list saved.</Alert>}
       <p className="small muted" style={{ marginTop: 0 }}>
         The whole list is saved at once and renumbered 1…n. "Run" is the time
         from the previous stop; "dwell" is time spent at this one. Those two
