@@ -64,7 +64,7 @@ export default function LinesPage() {
     <>
       <PageHead
         title="Lines & patterns"
-        intro="A line carries generic key/value attributes, and one or more patterns — the ordered stop sequences its trips follow."
+        info="A line has one or more patterns — the ordered stop sequences its trips follow. Attributes live on the patterns, not the line, because they describe a variant of the service rather than the whole line."
       />
 
       <Panel>
@@ -246,6 +246,20 @@ function PatternAttributesButton({
       {open && (
         <Modal
           title={`Attributes — ${pattern.name}`}
+          info={
+            <>
+              These describe this <em>variant</em> of the line — express,
+              school-days-only, via the hospital — which is why they live on
+              the pattern and not on the line. Each non-empty{' '}
+              <strong>value</strong> prints as a bubble beside the line number:
+              set TYPE to EXP and a duty card shows (127) (EXP). Two keys are
+              reserved because GTFS has real fields for them —
+              wheelchair_accessible and bikes_allowed. Their value must be yes,
+              no or unknown, and they are written into the exported feed rather
+              than shown as bubbles. Everything else is internal: GTFS has
+              nowhere to carry it.
+            </>
+          }
           onClose={() => setOpen(false)}
           footer={
             <>
@@ -257,23 +271,6 @@ function PatternAttributesButton({
           }
         >
           <Alert kind="err">{error}</Alert>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            These describe this <em>variant</em> of the line — express,
-            school-days-only, via the hospital — which is why they live on the
-            pattern and not on the line. Each non-empty <strong>value</strong>{' '}
-            prints as a bubble beside the line number: set <code>TYPE</code> to{' '}
-            <code>EXP</code> and a duty card shows{' '}
-            <span className="bubble">127</span>
-            <span className="bubble">EXP</span>.
-          </p>
-          <p className="small muted">
-            Two keys are reserved because GTFS has real fields for them —{' '}
-            <code>wheelchair_accessible</code> and <code>bikes_allowed</code>.
-            Their value must be <code>yes</code>, <code>no</code> or{' '}
-            <code>unknown</code>, and they are written into the exported feed
-            rather than shown as bubbles. Everything else is internal: GTFS has
-            nowhere to carry it.
-          </p>
           <AttributeEditor
             value={rows}
             onChange={setRows}
@@ -371,6 +368,14 @@ function PatternStopsEditor({
     <Modal
       wide
       title={`Stops — ${pattern.name}`}
+      info={
+        'The whole list is saved at once and renumbered 1…n. "Run" is the time ' +
+        'from the previous stop; "dwell" is time spent at this one. Those two ' +
+        'values are what a generated timetable is laid out from. A pattern that ' +
+        'already has trips cannot have its stops changed — copy it instead, so ' +
+        'existing stop times stay valid. Only stop-type locations are searched: ' +
+        'a pattern cannot call at a depot.'
+      }
       onClose={onClose}
       footer={
         <>
@@ -385,14 +390,6 @@ function PatternStopsEditor({
     >
       <Alert kind="err">{error}</Alert>
       {saved && <Alert kind="ok">Stop list saved.</Alert>}
-      <p className="small muted" style={{ marginTop: 0 }}>
-        The whole list is saved at once and renumbered 1…n. "Run" is the time
-        from the previous stop; "dwell" is time spent at this one. Those two
-        values are what a generated timetable is laid out from.
-        {' '}
-        A pattern that already has trips cannot have its stops changed — copy
-        it instead, so existing stop times stay valid.
-      </p>
 
       <div className="cols side">
         <div>
@@ -468,7 +465,7 @@ function PatternStopsEditor({
           )}
 
           {canEdit && (
-            <div className="toolbar" style={{ marginTop: 10 }}>
+            <div className="toolbar-row" style={{ marginTop: 10 }}>
               <div style={{ minWidth: 280 }}>
                 <Field label="Add a stop">
                   <EntitySelect
@@ -511,9 +508,6 @@ function PatternStopsEditor({
                   />
                 </Field>
               </div>
-              <span className="muted small" style={{ marginTop: 16 }}>
-                Only stop-type locations are searched — a pattern cannot call at a depot.
-              </span>
             </div>
           )}
         </div>

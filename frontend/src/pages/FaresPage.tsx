@@ -34,7 +34,7 @@ export default function FaresPage() {
     <>
       <PageHead
         title="Fares"
-        intro="Price is a function of origin zone and destination zone. A same-zone journey (A→A) is simply the diagonal of the matrix — it needs no special rule."
+        info="Price is a function of origin zone and destination zone. A same-zone journey (A→A) is simply the diagonal of the matrix — it needs no special rule."
         actions={
           canEdit ? (
             <button onClick={() => setFillOpen(true)} disabled={!zones.length}>
@@ -74,7 +74,8 @@ export default function FaresPage() {
 
       <Panel
         title="Price matrix"
-        hint={matrix ? `${matrix.missing_count} unpriced cells` : undefined}
+        hint={matrix ? `${matrix.missing_count} unpriced` : undefined}
+        info="Rows are the origin zone, columns the destination. Type a price in euros and tab out to save. Highlighted cells have no rule yet. Past 25 zones the grid is not drawn by default — it is quadratic, so 40 zones is 1,600 editable cells."
         actions={
           <button className="small" onClick={loadMatrix}>
             Refresh
@@ -178,10 +179,6 @@ function MatrixTable({
   return (
     <>
       <Alert kind="err">{error}</Alert>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Rows are the origin zone, columns the destination. Type a price in
-        euros and tab out to save. Highlighted cells have no rule yet.
-      </p>
       <div className="table-wrap">
         <table className="matrix">
           <thead>
@@ -261,6 +258,7 @@ function FillModal({ onClose, onDone }: { onClose: () => void; onDone: () => voi
   return (
     <Modal
       title="Fill empty cells"
+      info="Only cells with no rule are written. Existing prices are never overwritten, so this is safe to run after adding a zone."
       onClose={onClose}
       footer={
         <>
@@ -272,10 +270,6 @@ function FillModal({ onClose, onDone }: { onClose: () => void; onDone: () => voi
       }
     >
       <Alert kind="err">{error}</Alert>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Only cells with no rule are written. Existing prices are never
-        overwritten, so this is safe to run after adding a zone.
-      </p>
       <Field label="Price (EUR)">
         <input value={price} onChange={(e) => setPrice(e.target.value)} />
       </Field>

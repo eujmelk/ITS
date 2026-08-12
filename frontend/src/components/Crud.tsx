@@ -431,7 +431,7 @@ export function CrudTable<T extends Record<string, any>>({
 
   return (
     <>
-      <div className="toolbar">
+      <div className="toolbar-row">
         {searchable && (
           <input
             placeholder="Search…"

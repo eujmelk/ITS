@@ -58,11 +58,11 @@ export default function ItineraryPage() {
     <>
       <PageHead
         title="Itinerary finder"
-        intro="Journey search on a real service date. Walking connections come only from stop areas and explicit transfers — never from how close two points look on a map."
+        info="Journey search on a real service date. Walking connections come only from stop areas and explicit transfers — never from how close two points look on a map."
       />
 
       <Panel title="Search">
-        <div className="toolbar">
+        <div className="toolbar-row">
           <div style={{ minWidth: 220 }}>
             <Field label="From">
               <EntitySelect
@@ -148,7 +148,7 @@ function ItineraryCard({ itinerary }: { itinerary: Itinerary }) {
   const minutes = Math.round(itinerary.duration_seconds / 60)
   return (
     <div className="panel" style={{ marginBottom: 10 }}>
-      <div className="toolbar" style={{ marginBottom: 8 }}>
+      <div className="toolbar-row" style={{ marginBottom: 8 }}>
         <strong style={{ fontSize: 15 }}>
           {secondsToHhmm(itinerary.depart_seconds)} → {secondsToHhmm(itinerary.arrive_seconds)}
         </strong>
@@ -222,17 +222,13 @@ function TransferGraphPanel() {
     <Panel
       title="Transfer graph"
       hint="the walking edges the search uses"
+      info="Exactly two sources: stops sharing a stop area, at that area's cross time, and explicit pairwise transfer rows. If a change you expect is not happening, it is almost always missing from here."
       actions={
         <button className="small" onClick={() => setShow((v) => !v)}>
           {show ? 'Hide' : 'Show'}
         </button>
       }
     >
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Exactly two sources: stops sharing a stop area, at that area's cross
-        time, and explicit pairwise transfer rows. If a change you expect is
-        not happening, it is almost always missing from here.
-      </p>
       {show &&
         (loading ? (
           <Spinner />

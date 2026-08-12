@@ -66,7 +66,7 @@ export default function SettingsPage() {
     <>
       <PageHead
         title="Settings"
-        intro="Operating parameters the rule checks read. They are data, not configuration files — changing one takes effect immediately, with no redeploy."
+        info="Operating parameters the rule checks read. They are data, not configuration files — changing one takes effect immediately, with no redeploy."
         actions={
           isAdmin ? (
             <button onClick={restore} title="Re-insert any built-in parameter that was deleted">
@@ -76,18 +76,17 @@ export default function SettingsPage() {
         }
       />
 
-      <Panel title="This instance" hint="name and operator details">
+      <Panel
+        title="This instance"
+        hint="name and operator details"
+        info="instance_name is what appears in the title bar, on the login page and in the browser tab. The agency details are what exported feeds carry — GTFS requires a name, a URL and a timezone."
+      >
         <Alert kind="err">{error}</Alert>
         {!isAdmin && (
           <Alert kind="info">
             You can see these values but only an administrator can change them.
           </Alert>
         )}
-        <p className="small muted" style={{ marginTop: 0 }}>
-          <code>instance_name</code> is what appears in the sidebar, on the
-          login page and in the browser tab. The agency details are what
-          exported feeds carry — GTFS requires a name, a URL and a timezone.
-        </p>
         {loading ? (
           <Spinner />
         ) : rows.length === 0 ? (
@@ -104,7 +103,11 @@ export default function SettingsPage() {
         )}
       </Panel>
 
-      <Panel title="Operating parameters" hint="what the roster is checked against">
+      <Panel
+        title="Operating parameters"
+        hint="what the roster is checked against"
+        info="These are global: one rule set for the whole operation. Per-line or per-driver overrides are not implemented, but everything already reads parameters through a resolver that takes a scope argument, so adding an override table later needs no change to the checks themselves — and no change to this page beyond a scope selector."
+      >
         {!loading && (
           <ParameterTable
             rows={operating}
@@ -117,15 +120,6 @@ export default function SettingsPage() {
         )}
       </Panel>
 
-      <Panel title="Scope">
-        <p className="small muted" style={{ marginTop: 0 }}>
-          These are global: one rule set for the whole operation. Per-line or
-          per-driver overrides are not implemented, but everything already
-          reads parameters through a resolver that takes a scope argument, so
-          adding an override table later needs no change to the checks
-          themselves — and no change to this page beyond a scope selector.
-        </p>
-      </Panel>
     </>
   )
 }

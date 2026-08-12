@@ -141,7 +141,7 @@ export default function SchedulePage() {
     <>
       <PageHead
         title="Timetables"
-        intro="Trips laid out as stops down, departures across — the same grid the printed timetable is built from."
+        info="Trips laid out as stops down, departures across — the same grid the printed timetable is built from. Tick more than one pattern to combine them onto a single sheet; their stop lists are merged, and a stop only some of them serve is marked with a small circle."
         actions={
           <>
             <button
@@ -192,7 +192,7 @@ export default function SchedulePage() {
       />
 
       <Panel>
-        <div className="toolbar">
+        <div className="toolbar-row">
           <Field label="Board">
             <select value={boardId} onChange={(e) => setBoardId(e.target.value)}>
               <option value="">— choose —</option>
@@ -459,6 +459,7 @@ function GenerateTripsModal({
   return (
     <Modal
       title={`Generate trips — ${pattern.name}`}
+      info="Each trip's stop times are laid out from the pattern's default run and dwell values, then stay editable individually. Times past midnight use the service-day clock — 25:10 is 01:10 on the following morning."
       onClose={onClose}
       footer={
         <>
@@ -470,11 +471,6 @@ function GenerateTripsModal({
       }
     >
       <Alert kind="err">{error}</Alert>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Each trip's stop times are laid out from the pattern's default run and
-        dwell values, then stay editable individually. Times past midnight use
-        the service-day clock — 25:10 is 01:10 on the following morning.
-      </p>
       <div className="form-grid">
         <Field label="Calendar">
           <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
@@ -642,6 +638,7 @@ function TripEditor({
   return (
     <Modal
       title={`Trip #${tripId}`}
+      info="Clear a stop's times to skip it — the trip runs past without calling, which is how a limited-stop or short working is built without cloning the pattern. Skipped stops show as a dot in the grid and are left out of exports. Type a time back in to restore the call."
       onClose={onClose}
       footer={
         canEdit ? (
@@ -661,37 +658,31 @@ function TripEditor({
         <Spinner />
       ) : (
         <>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            {trip.line_short_name} · {trip.pattern_name} · {trip.calendar_name}
-            {trip.block_name && ` · block ${trip.block_name}`}
-          </p>
+          <div className="toolbar-row">
+            <span className="tag">{trip.line_short_name}</span>
+            <span className="small">{trip.pattern_name}</span>
+            <span className="small muted">{trip.calendar_name}</span>
+            {trip.block_name && <span className="tag grey">block {trip.block_name}</span>}
+          </div>
 
           {canEdit && (
-            <div className="toolbar">
-              <Field label="Shift whole trip (minutes)">
+            <div className="toolbar-row">
+              <Field
+                label="Shift whole trip (minutes)"
+                info="Moves every call by the same amount, keeping the running times between stops intact."
+              >
                 <input
                   type="number"
                   value={shift}
                   onChange={(e) => setShift(Number(e.target.value))}
-                  style={{ width: 100 }}
+                  style={{ width: 90 }}
                 />
               </Field>
-              <button style={{ marginTop: 14 }} onClick={applyShift} disabled={!shift}>
+              <button onClick={applyShift} disabled={!shift}>
                 Apply shift
               </button>
-              <span className="muted small" style={{ marginTop: 18 }}>
-                Moves every call, keeping the running times intact.
-              </span>
             </div>
           )}
-
-          <p className="small muted">
-            Clear a stop's times to <strong>skip</strong> it — the trip runs
-            past without calling, which is how a limited-stop or short working
-            is built without cloning the pattern. Skipped stops show as “·” in
-            the grid and are left out of exports. Type a time back in to
-            restore the call.
-          </p>
 
           <div className="table-wrap">
             <table className="grid">

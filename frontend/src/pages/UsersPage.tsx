@@ -13,11 +13,14 @@ export default function UsersPage() {
     <>
       <PageHead
         title="Users"
-        intro="Viewers can read everything and export. Planners can also change network, schedule, fare and block data. Administrators additionally manage users and operating parameters."
+        info="Viewers can read everything and export. Planners can also change network, schedule, fare and block data. Administrators additionally manage users and operating parameters."
         actions={<button onClick={() => setPwOpen(true)}>Change my password</button>}
       />
 
-      <Panel>
+      <Panel
+        title="Accounts"
+        info="You cannot disable, demote or delete your own account, and the last administrator cannot be removed — that would lock everyone out of user management."
+      >
         <CrudTable<User>
           endpoint="/users"
           entityName="User"
@@ -72,11 +75,6 @@ export default function UsersPage() {
             return payload
           }}
         />
-        <p className="small muted">
-          You cannot disable, demote or delete your own account, and the last
-          administrator cannot be removed — that would lock everyone out of
-          user management.
-        </p>
       </Panel>
 
       {pwOpen && <PasswordModal onClose={() => setPwOpen(false)} username={user?.username} />}

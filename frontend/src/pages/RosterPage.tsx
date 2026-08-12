@@ -14,6 +14,7 @@ import {
   Alert,
   Empty,
   Field,
+  Info,
   IssueList,
   Modal,
   PageHead,
@@ -38,9 +39,9 @@ export default function RosterPage() {
     <>
       <PageHead
         title="Roster"
-        intro="Build duties from finished blocks: assign whole blocks or parts of them, insert breaks, and check the result against the operating parameters."
+        info="Build duties from finished blocks: assign whole blocks or parts of them, insert breaks, and check the result against the operating parameters."
       />
-      <div className="toolbar">
+      <div className="toolbar-row">
         <button className={tab === 'roster' ? 'primary' : ''} onClick={() => setTab('roster')}>
           Duties
         </button>
@@ -108,7 +109,7 @@ function RosterTab() {
   return (
     <>
       <Panel>
-        <div className="toolbar">
+        <div className="toolbar-row">
           <Field label="Schedule board">
             <select value={boardId} onChange={(e) => setBoardId(e.target.value)}>
               <option value="">— choose —</option>
@@ -193,12 +194,8 @@ function RosterTab() {
         <Panel
           title="Block coverage"
           hint={uncovered.length ? `${uncovered.length} incomplete` : 'all covered'}
+          info="Which pieces of each block still have nobody driving them on this date. A block split between two drivers shows as covered only once both halves are rostered."
         >
-          <p className="small muted" style={{ marginTop: 0 }}>
-            Which pieces of each block still have nobody driving them on this
-            date. A block split between two drivers shows as covered only once
-            both halves are rostered.
-          </p>
           {coverage.length === 0 ? (
             <Empty>No blocks on this board.</Empty>
           ) : (
@@ -453,6 +450,13 @@ function DutyBuilder({ duty, onClose }: { duty: Duty; onClose: () => void }) {
     <Modal
       wide
       title={`Duty ${duty.name} — ${duty.date}`}
+      info={
+        'A "drive block" piece takes its times from the block itself — leave ' +
+        'the range blank to take the whole block, or set a piece range to ' +
+        'split it with another driver. Breaks and sign on/off carry their own ' +
+        'times and a location. Block times appear once you save, because they ' +
+        'come from the block.'
+      }
       onClose={onClose}
       footer={
         <>
@@ -476,7 +480,7 @@ function DutyBuilder({ duty, onClose }: { duty: Duty; onClose: () => void }) {
       ) : (
         <>
           {detail && (
-            <div className="toolbar">
+            <div className="toolbar-row">
               <span className="tag">
                 Driver: {detail.driver_name ?? 'unassigned'}
               </span>
@@ -511,13 +515,6 @@ function DutyBuilder({ duty, onClose }: { duty: Duty; onClose: () => void }) {
               </div>
             </div>
           )}
-
-          <p className="small muted" style={{ marginTop: 0 }}>
-            A "drive block" piece takes its times from the block itself — leave
-            the range blank to take the whole block, or set a piece range to
-            split it with another driver. Breaks and sign on/off carry their
-            own times and a location.
-          </p>
 
           {pieces.length === 0 ? (
             <Empty>No pieces yet. Add a sign-on to start.</Empty>
@@ -674,7 +671,7 @@ function DutyBuilder({ duty, onClose }: { duty: Duty; onClose: () => void }) {
           )}
 
           {canEdit && (
-            <div className="toolbar" style={{ marginTop: 10 }}>
+            <div className="toolbar-row" style={{ marginTop: 10 }}>
               <button onClick={() => add('sign_on')}>+ Sign on</button>
               <button onClick={() => add('block_segment')}>+ Drive block</button>
               <button onClick={() => add('break')}>+ Break</button>
@@ -685,15 +682,17 @@ function DutyBuilder({ duty, onClose }: { duty: Duty; onClose: () => void }) {
             </div>
           )}
 
-          <div style={{ marginTop: 14 }}>
-            <h3 style={{ fontSize: 14 }}>Rule check</h3>
-            <p className="small muted" style={{ marginTop: 0 }}>
-              Checked against the values on the Settings page. Violations are
-              flagged but never block saving, so an edge case can be accepted
-              deliberately.
-            </p>
+          <fieldset className="group" style={{ marginTop: 6 }}>
+            <legend>
+              Rule check
+              <Info>
+                Checked against the values on the Settings page. Violations are
+                flagged but never block saving, so an edge case can be accepted
+                deliberately.
+              </Info>
+            </legend>
             <IssueList report={detail?.validation ?? null} />
-          </div>
+          </fieldset>
         </>
       )}
     </Modal>

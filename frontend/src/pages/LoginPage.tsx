@@ -27,24 +27,27 @@ export default function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1>{config?.app_name ?? 'Transit Scheduling'}</h1>
-        <p className="sub">Sign in to continue.</p>
-        <Alert kind="err">{error}</Alert>
-        <div className="field">
-          <label>Username</label>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+        <header>{config?.app_name ?? 'Transit Scheduling'} — Log On</header>
+        <div className="body">
+          <Alert kind="err">{error}</Alert>
+          <div className="field">
+            <label>User name:</label>
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          </div>
+          <div className="field">
+            <label>Password:</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 5, marginTop: 8 }}>
+            <button className="primary" disabled={busy} style={{ minWidth: 72 }}>
+              {busy ? 'Working…' : 'OK'}
+            </button>
+          </div>
         </div>
-        <div className="field">
-          <label>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        <button className="primary" style={{ width: '100%', marginTop: 6 }} disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
       </form>
     </div>
   )

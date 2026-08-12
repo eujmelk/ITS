@@ -43,7 +43,7 @@ export default function BoardsPage() {
     <>
       <PageHead
         title="Schedule boards"
-        intro="A board is everything valid over one date range: its calendars, its trips and its blocks. Next season starts as a copy of this one."
+        info="A board is everything valid over one date range: its calendars, its trips and its blocks. Next season starts as a copy of this one."
       />
 
       <Panel>
@@ -131,6 +131,7 @@ function GtfsButton({ board }: { board: ScheduleVersion }) {
       {open && (
         <Modal
           title={`GTFS export — ${board.name}`}
+          info="A standards-compliant zip: stops, routes, trips, stop times, calendars, transfers and fares. Only passenger-facing data — depots, blocks and duties stay internal. Stop areas become GTFS parent stations, and skipped stops are simply absent from stop_times.txt."
           onClose={() => setOpen(false)}
           footer={
             <>
@@ -142,13 +143,6 @@ function GtfsButton({ board }: { board: ScheduleVersion }) {
           }
         >
           <Alert kind="err">{error}</Alert>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            A standards-compliant zip: stops, routes, trips, stop times,
-            calendars, transfers and fares. Only passenger-facing data — depots,
-            blocks and duties stay internal. Stop areas become GTFS parent
-            stations, and skipped stops are simply absent from
-            <code> stop_times.txt</code>.
-          </p>
           {problems === null ? (
             <p className="muted">Checking…</p>
           ) : problems.length === 0 ? (
@@ -206,6 +200,7 @@ function DuplicateButton({ board, onDone }: { board: ScheduleVersion; onDone: ()
       {open && (
         <Modal
           title={`Copy board — ${board.name}`}
+          info="Blocks reference specific trips, so they can only be copied along with them. Calendars and their exception dates always come across. The copy is created as a draft."
           onClose={() => setOpen(false)}
           footer={
             <>
@@ -240,11 +235,6 @@ function DuplicateButton({ board, onDone }: { board: ScheduleVersion; onDone: ()
             />
             <label>Copy blocks too</label>
           </div>
-          <p className="small muted">
-            Blocks reference specific trips, so they can only be copied along
-            with them. Calendars and their exception dates always come across.
-            The copy is created as a draft.
-          </p>
         </Modal>
       )}
     </>
@@ -258,6 +248,7 @@ function CalendarsPanel({ board, onClose }: { board: ScheduleVersion; onClose: (
     <Panel
       title={`Calendars — ${board.name}`}
       hint="which days each group of trips runs"
+      info="A calendar is a service pattern — weekdays, Saturday, school holidays — and every trip belongs to one. Individual dates can be added or removed per calendar through the API (/calendar-exceptions) for public holidays and one-off events."
       actions={
         <button className="small" onClick={onClose}>
           Close
@@ -306,10 +297,6 @@ function CalendarsPanel({ board, onClose }: { board: ScheduleVersion; onClose: (
           })),
         ]}
       />
-      <p className="small muted">
-        Individual dates can be added or removed per calendar through the API
-        (<code>/calendar-exceptions</code>) — public holidays, one-off events.
-      </p>
     </Panel>
   )
 }

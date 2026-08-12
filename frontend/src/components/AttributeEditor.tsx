@@ -119,8 +119,8 @@ export function AttributeEditor({
             </button>
           </div>
           {unused.length > 0 && (
-            <div className="small muted" style={{ marginTop: 4 }}>
-              Suggested:{' '}
+            <div className="small" style={{ marginTop: 3 }}>
+              <span className="muted">Suggested: </span>
               {unused.map((key) => (
                 <button
                   key={key}

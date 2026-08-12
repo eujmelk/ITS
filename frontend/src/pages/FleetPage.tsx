@@ -22,6 +22,7 @@ import {
   Modal,
   PageHead,
   Panel,
+  Info,
   Spinner,
   TimeInput,
   durationLabel,
@@ -42,10 +43,10 @@ export default function FleetPage() {
     <>
       <PageHead
         title="Fleet & blocks"
-        intro="A block is a vehicle's whole day: pull-out from the depot, revenue trips, deadheads between them, pull-in at the end. Every leg references a real location, so continuity can actually be checked."
+        info="A block is a vehicle's whole day: pull-out from the depot, revenue trips, deadheads between them, pull-in at the end. Every leg references a real location, so continuity can actually be checked."
       />
 
-      <div className="toolbar">
+      <div className="toolbar-row">
         <button className={tab === 'blocks' ? 'primary' : ''} onClick={() => setTab('blocks')}>
           Blocks
         </button>
@@ -179,7 +180,7 @@ function BlocksTab({ types }: { types: VehicleType[] }) {
   return (
     <>
       <Panel>
-        <div className="toolbar">
+        <div className="toolbar-row">
           <Field label="Schedule board">
             <select value={boardId} onChange={(e) => setBoardId(e.target.value)}>
               <option value="">— choose —</option>
@@ -371,6 +372,7 @@ function BlockPiecesEditor({
     <Modal
       wide
       title={`Block ${block.name} — pieces`}
+      info="A trip piece takes its times and endpoints from the trip's own stop times — nothing is retyped here. Deadheads, pull-outs and pull-ins need their own two locations and times. Continuity is compared on real location ids, not on text, and issues are reported rather than enforced: you can always save."
       onClose={onClose}
       footer={
         <>
@@ -389,11 +391,6 @@ function BlockPiecesEditor({
         <Spinner />
       ) : (
         <>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            A trip piece takes its times and endpoints from the trip's own stop
-            times — nothing is retyped here. Deadheads, pull-outs and pull-ins
-            need their own two locations and times.
-          </p>
 
           {pieces.length === 0 ? (
             <Empty>No pieces yet.</Empty>
@@ -518,7 +515,7 @@ function BlockPiecesEditor({
           )}
 
           {canEdit && (
-            <div className="toolbar" style={{ marginTop: 10 }}>
+            <div className="toolbar-row" style={{ marginTop: 10 }}>
               <button onClick={() => setPickerOpen(true)}>+ Add trip</button>
               <button onClick={() => addPiece('pull_out')}>+ Pull-out</button>
               <button onClick={() => addPiece('deadhead')}>+ Deadhead</button>
@@ -529,14 +526,16 @@ function BlockPiecesEditor({
             </div>
           )}
 
-          <div style={{ marginTop: 14 }}>
-            <h3 style={{ fontSize: 14 }}>Consistency check</h3>
-            <p className="small muted" style={{ marginTop: 0 }}>
-              Continuity is compared on real location ids, not on text. Issues
-              are reported, never enforced — you can save regardless.
-            </p>
+          <fieldset className="group" style={{ marginTop: 6 }}>
+            <legend>
+              Consistency check
+              <Info>
+                Continuity is compared on real location ids, not on text.
+                Issues are reported, never enforced — you can save regardless.
+              </Info>
+            </legend>
             <IssueList report={report} />
-          </div>
+          </fieldset>
         </>
       )}
 
@@ -668,7 +667,7 @@ function TripPicker({
   return (
     <Modal wide title="Add a trip to the block" onClose={onClose}>
       <Alert kind="err">{error}</Alert>
-      <div className="toolbar">
+      <div className="toolbar-row">
         <div className="field inline">
           <input
             type="checkbox"

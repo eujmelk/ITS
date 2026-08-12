@@ -110,11 +110,8 @@ export default function LocationsPage() {
     <>
       <PageHead
         title="Locations"
-        intro="Stops, depots, layover points and garages live in one table with a type flag — they are operationally the same kind of thing, a place with a name and coordinates."
-      />
-
-      <div className="toolbar">
-        {(['locations', 'areas', 'transfers', 'quality'] as Tab[]).map((t) => (
+        info="Stops, depots, layover points and garages live in one table with a type flag — they are operationally the same kind of thing, a place with a name and coordinates."
+        actions={(['locations', 'areas', 'transfers', 'quality'] as Tab[]).map((t) => (
           <button key={t} className={tab === t ? 'primary' : ''} onClick={() => setTab(t)}>
             {t === 'locations'
               ? 'Locations'
@@ -125,7 +122,7 @@ export default function LocationsPage() {
                   : 'Data quality'}
           </button>
         ))}
-      </div>
+      />
 
       {tab === 'locations' && (
         <div className="cols side">
@@ -154,14 +151,15 @@ export default function LocationsPage() {
               }
             />
           </Panel>
-          <Panel title="Reference map" hint="colour by type">
-            {mapTruncated && (
-              <p className="small muted" style={{ marginTop: 0 }}>
-                Mapping the first {MAP_CAP.toLocaleString()} of{' '}
-                {locationTotal.toLocaleString()} locations. Use the table's
-                search to find a specific one.
-              </p>
-            )}
+          <Panel
+            title="Reference map"
+            hint={mapTruncated ? `first ${MAP_CAP.toLocaleString()} of ${locationTotal.toLocaleString()}` : 'colour by type'}
+            info={
+              mapTruncated
+                ? `Markers are coloured by location type. Only the first ${MAP_CAP.toLocaleString()} of ${locationTotal.toLocaleString()} locations are mapped, and only those in view are drawn — use the table's search to find a specific one.`
+                : 'Markers are coloured by location type. Only locations in view are drawn, so panning a large network stays responsive.'
+            }
+          >
             <MapView
               key={reloadKey}
               points={locations
@@ -228,6 +226,7 @@ function AttributesButton({ location, onSaved }: { location: Location; onSaved: 
       {open && (
         <Modal
           title={`Attributes — ${location.name}`}
+          info="Free-form key/value pairs. Add whatever you need — no schema change or release is involved."
           onClose={() => setOpen(false)}
           footer={
             <>
@@ -239,10 +238,6 @@ function AttributesButton({ location, onSaved }: { location: Location; onSaved: 
           }
         >
           <Alert kind="err">{error}</Alert>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            Free-form key/value pairs. Add whatever you need — no schema change
-            or release is involved.
-          </p>
           <AttributeEditor
             value={rows}
             onChange={setRows}
@@ -279,14 +274,10 @@ function StopAreasPanel({ areas, reload }: { areas: StopArea[]; reload: () => vo
   }
 
   return (
-    <Panel>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        A stop area groups locations that are effectively the same place — two
-        directions of one street, opposite corners of a junction. Membership is
-        flagged once per stop, so any two members are automatically connected
-        by a transfer at the area's cross time. Adding a third stop on the same
-        corner needs no new pairwise rows.
-      </p>
+    <Panel
+      title="Stop areas"
+      info="A stop area groups locations that are effectively the same place — two directions of one street, opposite corners of a junction. Membership is flagged once per stop, so any two members are automatically connected by a transfer at the area's cross time. Adding a third stop on the same corner needs no new pairwise rows."
+    >
       <CrudTable<StopArea>
         endpoint="/stop-areas"
         entityName="Stop area"
@@ -345,6 +336,7 @@ function StopAreasPanel({ areas, reload }: { areas: StopArea[]; reload: () => vo
       {editing && (
         <Modal
           title={`Member stops — ${editing.name}`}
+          info="Only stop-type locations can join an area — a depot is not somewhere a passenger transfers. An area normally holds two or three stops, so search for them rather than scrolling the network."
           onClose={() => setEditingId(null)}
           footer={
             <>
@@ -356,11 +348,6 @@ function StopAreasPanel({ areas, reload }: { areas: StopArea[]; reload: () => vo
           }
         >
           <Alert kind="err">{error}</Alert>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            Only stop-type locations can join an area — a depot is not
-            somewhere a passenger transfers. An area normally holds two or
-            three stops, so search for them rather than scrolling the network.
-          </p>
 
           {members.length === 0 ? (
             <Empty>No member stops yet.</Empty>
@@ -422,12 +409,10 @@ function TransfersPanel() {
 
   return (
     <>
-      <Panel>
-        <p className="small muted" style={{ marginTop: 0 }}>
-          Explicit pairwise walks, for places that are not "the same place" but
-          are still a reasonable connection — a bus stop and a rail platform
-          300 m apart, say. These should be rarer than stop areas.
-        </p>
+      <Panel
+        title="Transfers"
+        info={`Explicit pairwise walks, for places that are not "the same place" but are still a reasonable connection — a bus stop and a rail platform 300 m apart, say. These should be rarer than stop areas.`}
+      >
         <CrudTable<LocationTransfer>
           endpoint="/location-transfers"
           entityName="Transfer"
@@ -474,18 +459,14 @@ function TransfersPanel() {
 
       <Panel
         title="Resolved transfer graph"
-        hint="what the itinerary finder will see"
+        hint="what the itinerary finder sees"
+        info="Two sources only: stop-area members at the area's cross time, and the explicit rows above. Nothing is inferred from coordinate proximity — a river or a motorway can sit between two points that look adjacent."
         actions={
           <button className="small" onClick={() => setShowGraph((v) => !v)}>
             {showGraph ? 'Hide' : 'Show'}
           </button>
         }
       >
-        <p className="small muted" style={{ marginTop: 0 }}>
-          Two sources only: stop-area members at the area's cross time, and the
-          explicit rows above. Nothing is inferred from coordinate proximity —
-          a river or a motorway can sit between two points that look adjacent.
-        </p>
         {showGraph &&
           (loading ? (
             <Spinner />
@@ -546,16 +527,13 @@ function QualityPanel() {
   return (
     <Panel
       title="Data quality"
+      info="Flags locations without coordinates, patterns calling at non-stop locations, and empty stop areas. Nothing here blocks saving."
       actions={
         <button className="small primary" onClick={run} disabled={busy}>
           {busy ? 'Checking…' : 'Run checks'}
         </button>
       }
     >
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Flags locations without coordinates, patterns calling at non-stop
-        locations, and empty stop areas. Nothing here blocks saving.
-      </p>
       <Alert kind="err">{error}</Alert>
       {report ? <IssueList report={report} /> : <Empty>Not run yet.</Empty>}
     </Panel>

@@ -1,5 +1,8 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { useState } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useApp } from './state/AppContext'
+import { AboutDialog, MenuBar, StatusBar, TabStrip, useGo } from './components/Chrome'
+import type { MenuDef, TabDef } from './components/Chrome'
 import LoginPage from './pages/LoginPage'
 import LocationsPage from './pages/LocationsPage'
 import LinesPage from './pages/LinesPage'
@@ -12,31 +15,27 @@ import SettingsPage from './pages/SettingsPage'
 import ItineraryPage from './pages/ItineraryPage'
 import UsersPage from './pages/UsersPage'
 
-const NAV = [
-  { group: 'Network', items: [
-    { to: '/locations', label: 'Locations' },
-    { to: '/lines', label: 'Lines & patterns' },
-  ]},
-  { group: 'Service', items: [
-    { to: '/boards', label: 'Schedule boards' },
-    { to: '/schedule', label: 'Timetables' },
-    { to: '/fares', label: 'Fares' },
-  ]},
-  { group: 'Operations', items: [
-    { to: '/fleet', label: 'Fleet & blocks' },
-    { to: '/roster', label: 'Roster' },
-  ]},
-  { group: 'Tools', items: [
-    { to: '/itinerary', label: 'Itinerary finder' },
-    { to: '/settings', label: 'Settings' },
-    { to: '/users', label: 'Users', adminOnly: true },
-  ]},
+const TABS: TabDef[] = [
+  { to: '/locations', label: 'Locations' },
+  { to: '/lines', label: 'Lines' },
+  { to: '/boards', label: 'Boards' },
+  { to: '/schedule', label: 'Timetables' },
+  { to: '/fares', label: 'Fares' },
+  { to: '/fleet', label: 'Fleet' },
+  { to: '/roster', label: 'Roster' },
+  { to: '/itinerary', label: 'Itinerary' },
+  { to: '/settings', label: 'Settings' },
 ]
 
 export default function App() {
   const { user, loading, logout, isAdmin, config } = useApp()
+  const go = useGo()
+  const location = useLocation()
+  const [aboutOpen, setAboutOpen] = useState(false)
 
-  if (loading) return <div className="empty" style={{ marginTop: 80 }}>Starting…</div>
+  if (loading) {
+    return <div className="empty" style={{ marginTop: 60 }}>Starting…</div>
+  }
   if (!user) {
     return (
       <Routes>
@@ -45,36 +44,50 @@ export default function App() {
     )
   }
 
-  return (
-    <div className="shell">
-      <aside className="sidebar">
-        <h1>{config?.app_name ?? 'Transit Scheduling'}</h1>
-        <nav>
-          {NAV.map((section) => (
-            <div key={section.group}>
-              <div className="group">{section.group}</div>
-              {section.items
-                .filter((item) => !item.adminOnly || isAdmin)
-                .map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) => (isActive ? 'active' : '')}
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-            </div>
-          ))}
-        </nav>
-        <div className="foot">
-          <div>{user.full_name || user.username}</div>
-          <div className="muted" style={{ color: '#a8c4da' }}>{user.role}</div>
-          <button onClick={logout}>Log out</button>
-        </div>
-      </aside>
+  const tabs: TabDef[] = [...TABS, { to: '/users', label: 'Users', hidden: !isAdmin }]
 
-      <main className="main">
+  // Every entry here goes somewhere that already exists; the menu bar is
+  // navigation and session control, not a second set of features.
+  const menus: MenuDef[] = [
+    {
+      title: 'File',
+      items: [
+        { label: 'Change password…', onSelect: () => go('/users') },
+        { separator: true, label: 'sep-1' },
+        { label: 'Log out', onSelect: logout },
+      ],
+    },
+    {
+      title: 'View',
+      items: tabs
+        .filter((tab) => !tab.hidden)
+        .map((tab) => ({
+          label: tab.label,
+          checked: location.pathname === tab.to,
+          onSelect: () => go(tab.to),
+        })),
+    },
+    {
+      title: 'Tools',
+      items: [
+        { label: 'Operating parameters…', onSelect: () => go('/settings') },
+        { label: 'Users…', hidden: !isAdmin, onSelect: () => go('/users') },
+        { separator: true, label: 'sep-2' },
+        { label: 'Itinerary finder…', onSelect: () => go('/itinerary') },
+      ],
+    },
+    {
+      title: 'Help',
+      items: [{ label: 'About…', onSelect: () => setAboutOpen(true) }],
+    },
+  ]
+
+  return (
+    <div className="app">
+      <MenuBar menus={menus} />
+      <TabStrip tabs={tabs} />
+
+      <div className="content">
         <Routes>
           <Route path="/" element={<Navigate to="/locations" replace />} />
           <Route path="/login" element={<Navigate to="/locations" replace />} />
@@ -90,7 +103,21 @@ export default function App() {
           {isAdmin && <Route path="/users" element={<UsersPage />} />}
           <Route path="*" element={<div className="empty">Page not found.</div>} />
         </Routes>
-      </main>
+      </div>
+
+      <StatusBar
+        right={
+          <>
+            <span>{config?.app_name ?? 'Transit'}</span>
+            <span className="muted">|</span>
+            <span>
+              {user.full_name || user.username} ({user.role})
+            </span>
+          </>
+        }
+      />
+
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
     </div>
   )
 }

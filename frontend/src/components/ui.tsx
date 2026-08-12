@@ -1,25 +1,33 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ValidationIssue, ValidationReport } from '../api/types'
+import { Info } from '../state/StatusContext'
+
+export { Info }
 
 /* ------------------------------------------------------------------ page */
 
+/**
+ * The command strip under the tabs: page title, its (i), then the page's
+ * buttons. Replaces the old heading-plus-paragraph block — the paragraph now
+ * lives behind the (i), in the status bar.
+ */
 export function PageHead({
   title,
-  intro,
+  info,
   actions,
 }: {
   title: string
-  intro?: ReactNode
+  info?: ReactNode
   actions?: ReactNode
 }) {
   return (
-    <div className="page-head">
-      <div>
-        <h2>{title}</h2>
-        {intro && <p>{intro}</p>}
-      </div>
-      {actions && <div className="page-actions">{actions}</div>}
+    <div className="toolbar">
+      <span className="title">{title}</span>
+      {info && <Info>{info}</Info>}
+      {actions && <span className="sep" />}
+      {actions}
+      <span className="spacer" />
     </div>
   )
 }
@@ -27,24 +35,28 @@ export function PageHead({
 export function Panel({
   title,
   hint,
+  info,
   actions,
   children,
 }: {
   title?: string
+  /** Short, factual annotation — a count or state, not help text. */
   hint?: string
+  /** Explanatory prose, shown in the status bar when the (i) is clicked. */
+  info?: ReactNode
   actions?: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="panel">
-      {(title || actions) && (
-        <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>
-            {title}
-            {hint && <span className="hint">{hint}</span>}
-          </span>
+      {(title || actions || info) && (
+        <div className="panel-head">
+          <span>{title}</span>
+          {hint && <span className="hint">({hint})</span>}
+          {info && <Info>{info}</Info>}
+          <span className="spacer" />
           {actions}
-        </h3>
+        </div>
       )}
       {children}
     </div>
@@ -72,12 +84,15 @@ export function Spinner({ label = 'Loading…' }: { label?: string }) {
 
 export function Modal({
   title,
+  info,
   wide,
   onClose,
   footer,
   children,
 }: {
   title: string
+  /** Explanatory prose for the dialog, shown in the status bar on click. */
+  info?: ReactNode
   wide?: boolean
   onClose: () => void
   footer?: ReactNode
@@ -95,8 +110,11 @@ export function Modal({
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal${wide ? ' wide' : ''}`}>
         <header>
-          <h3>{title}</h3>
-          <button className="small" onClick={onClose} aria-label="Close">
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {title}
+            {info && <Info>{info}</Info>}
+          </span>
+          <button onClick={onClose} aria-label="Close">
             ✕
           </button>
         </header>
@@ -137,17 +155,21 @@ export function Field({
   children,
   full,
   hint,
+  info,
 }: {
   label: string
   children: ReactNode
   full?: boolean
+  /** Very short qualifier, e.g. "optional". Anything longer belongs in `info`. */
   hint?: string
+  info?: ReactNode
 }) {
   return (
     <div className={`field${full ? ' full' : ''}`}>
       <label>
         {label}
-        {hint && <span className="muted"> — {hint}</span>}
+        {hint && <span className="muted"> ({hint})</span>}
+        {info && <Info>{info}</Info>}
       </label>
       {children}
     </div>
