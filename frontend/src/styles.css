@@ -39,6 +39,10 @@
   --row-alt: #eeeeee;
 
   --font: Arial, "MS Sans Serif", Tahoma, Geneva, sans-serif;
+
+  /* Toolbar logo. The source is 64x64; raise this to show it larger and the
+     toolbar grows to fit. */
+  --logo-size: 20px;
 }
 
 * { box-sizing: border-box; }
@@ -160,7 +164,8 @@ textarea,
   border-color: var(--white) transparent var(--shadow) transparent;
   flex: 0 0 auto;
   flex-wrap: wrap;
-  min-height: 25px;
+  /* Tall enough for the logo without the row jumping when it is absent. */
+  min-height: calc(var(--logo-size) + 5px);
 }
 .toolbar .sep {
   width: 0; height: 18px; margin: 0 3px;
@@ -170,6 +175,15 @@ textarea,
 .toolbar .spacer { flex: 1; }
 .toolbar .title {
   font-weight: bold; font-size: 12px; padding: 0 4px; white-space: nowrap;
+}
+/* Downscaled from 64x64, so smooth rendering — `pixelated` drops pixels when
+   shrinking and turns a clean icon into noise. */
+.app-logo {
+  width: var(--logo-size);
+  height: var(--logo-size);
+  flex: 0 0 auto;
+  margin: 0 3px 0 1px;
+  object-fit: contain;
 }
 
 /* --------------------------------------------------------- tab strip --- */

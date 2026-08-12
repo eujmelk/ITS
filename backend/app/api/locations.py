@@ -1,8 +1,14 @@
 """Locations module: stops, depots, layovers, stop areas and transfers."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+
+#: Locations are a few hundred bytes a row, so this is generous for any real
+#: network while still refusing something pasted in by accident.
+MAX_IMPORT_BYTES = 8 * 1024 * 1024
 
 from app.deps import DbSession, ReaderUser, require_planner
 from app.enums import LocationType, Severity
@@ -16,6 +22,8 @@ from app.models import (
 )
 from app.schemas.common import ValidationIssue, ValidationReport
 from app.schemas.locations import (
+    ImportReport,
+    ImportRowResult,
     LocationAttributeCreate,
     LocationAttributeRead,
     LocationAttributeUpdate,
@@ -32,6 +40,7 @@ from app.schemas.locations import (
     StopAreaUpdate,
     TransferEdge,
 )
+from app.services import location_import
 from app.services import transfers as transfer_service
 from app.services.crud import check_exists, commit, crud_router, get_or_404
 
@@ -245,6 +254,67 @@ def transfer_graph(db: DbSession, _user: ReaderUser, location_id: int | None = N
     if location_id is not None:
         return transfer_service.edges_for_location(db, location_id)
     return transfer_service.build_edges(db)
+
+
+@router.post(
+    "/import",
+    response_model=ImportReport,
+    summary="Import locations from a CSV file",
+    dependencies=[Depends(require_planner)],
+)
+def import_locations(
+    db: DbSession,
+    file: Annotated[UploadFile, File(description="CSV, as produced by /csv/locations")],
+    dry_run: bool = Query(
+        default=True,
+        description="Report what would happen without writing anything.",
+    ),
+    replace_attributes: bool = Query(
+        default=False,
+        description=(
+            "Treat the file as the whole truth for attributes: any key not "
+            "present is removed. Off by default, so a partial spreadsheet "
+            "cannot wipe data it never mentioned."
+        ),
+    ),
+):
+    """Round-trips the CSV export: download, edit in a spreadsheet, upload.
+
+    Rows are matched on ``id`` then ``code``; anything unmatched is created.
+    Blank cells leave the existing value alone. Unrecognised columns become
+    location attributes, which is how the generic key/value model survives a
+    trip through a spreadsheet.
+
+    Nothing is written unless the whole file is clean — a partly-applied
+    import is worse than none.
+    """
+    # Sync endpoint, sync read: importing a few thousand rows is blocking work,
+    # so FastAPI runs the whole thing in a threadpool rather than stalling the
+    # event loop for the duration.
+    payload = file.file.read()
+    if len(payload) > MAX_IMPORT_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"File is larger than {MAX_IMPORT_BYTES // (1024 * 1024)} MB.",
+        )
+
+    report = location_import.run_import(
+        db, payload, dry_run=dry_run, replace_attributes=replace_attributes
+    )
+    return ImportReport(
+        dry_run=report.dry_run,
+        ok=report.ok,
+        delimiter=report.delimiter,
+        columns=report.columns,
+        attribute_columns=report.attribute_columns,
+        total=report.total,
+        created=report.created,
+        updated=report.updated,
+        skipped=report.skipped,
+        failed=report.failed,
+        rows=[ImportRowResult(**vars(row)) for row in report.rows],
+        fatal=report.fatal,
+    )
 
 
 @router.get(

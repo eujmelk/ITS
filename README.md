@@ -70,6 +70,7 @@ awkward without them:
 - Block coverage report: which pieces of which blocks still have no driver.
 - Driver double-booking and relief-handover checks on top of the §5 rules.
 - CSV exports (locations, stop times) and a data-quality report.
+- **CSV import for locations** — see below.
 - Users, roles, and a bootstrap administrator.
 - **Stop skipping**: clearing a stop's times on a trip makes it run past
   without calling, which is how a limited-stop or short working is built
@@ -82,6 +83,38 @@ awkward without them:
   in the browser tab is the `instance_name` setting, not an env var, so it can
   be changed without a redeploy. The agency details next to it are what GTFS
   needs.
+
+## Importing locations from CSV
+
+Locations ▸ **Import CSV…** round-trips the export: download, edit in a
+spreadsheet, upload back.
+
+- **Matching** is on `id`, then `code`. Anything unmatched is created. An `id`
+  that does not exist is an *error*, not an insert — a mistyped id should not
+  quietly become a new stop.
+- **Blank cells leave the existing value alone**, so a sheet holding only
+  `code`, `lat` and `lon` is a safe way to add coordinates in bulk without
+  touching anything else.
+- **Unrecognised columns become attributes.** That is what makes the generic
+  key/value model survive a trip through a spreadsheet — the export already
+  writes one column per attribute key in use. Attributes are merged by
+  default; `replace_attributes` is the explicit opt-in for "this file is the
+  whole truth", which removes keys the file does not mention.
+- **Zones and stop areas resolve by name, code or id.** They must already
+  exist; the importer will not invent reference data as a side effect.
+- **It is a two-step operation.** The dry run is a real pass — every row is
+  parsed, matched and written inside a transaction that is then rolled back —
+  so the counts you are shown are what will actually happen, not a guess from
+  reading the header. Only then does Apply commit.
+- **Nothing is written unless the whole file is clean.** Each row runs in its
+  own savepoint so one bad line reports its own error with a line number
+  instead of taking the file down, but a file with any failure is rejected
+  entirely. A half-applied import is worse than none.
+
+It tolerates what spreadsheets actually produce: a UTF-8 BOM (which our own
+export writes, so Excel opens accented stop names correctly), semicolon or tab
+delimiters from a European Excel, comma decimal separators, mixed header
+casing, and trailing blank lines.
 
 ## Attributes belong to patterns, not lines
 

@@ -76,6 +76,31 @@ export interface LocationTransfer {
   to_location_name?: string | null
 }
 
+export interface ImportRowResult {
+  line: number
+  action: 'created' | 'updated' | 'skipped' | 'failed'
+  name: string
+  code: string
+  location_id: number | null
+  message: string
+}
+
+export interface ImportReport {
+  dry_run: boolean
+  ok: boolean
+  delimiter: string
+  columns: string[]
+  /** Header columns not recognised as fields; these became attributes. */
+  attribute_columns: string[]
+  total: number
+  created: number
+  updated: number
+  skipped: number
+  failed: number
+  rows: ImportRowResult[]
+  fatal: string | null
+}
+
 export interface TransferEdge {
   from_location_id: number
   to_location_id: number

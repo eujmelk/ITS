@@ -144,6 +144,37 @@ class LocationTransferRead(LocationTransferBase, ORMModel):
     to_location_name: str | None = None
 
 
+class ImportRowResult(BaseModel):
+    line: int
+    action: str = Field(description="created | updated | skipped | failed")
+    name: str = ""
+    code: str = ""
+    location_id: int | None = None
+    message: str = ""
+
+
+class ImportReport(BaseModel):
+    """What an import did, or would do.
+
+    A dry run reports exactly this and keeps none of it, so the operator sees
+    the outcome before anything is written.
+    """
+
+    dry_run: bool
+    ok: bool
+    delimiter: str
+    columns: list[str] = []
+    #: Header columns not recognised as fields; these became attributes.
+    attribute_columns: list[str] = []
+    total: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    rows: list[ImportRowResult] = []
+    fatal: str | None = None
+
+
 class TransferEdge(BaseModel):
     """One walking edge as the itinerary finder sees it.
 

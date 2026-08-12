@@ -23,6 +23,22 @@ engine = create_engine(
     **_engine_kwargs,
 )
 
+if _is_sqlite:
+    # pysqlite emits its own implicit BEGIN in the wrong places, which breaks
+    # SAVEPOINT — and the CSV importer runs every row inside one so a single
+    # bad line cannot poison the whole transaction. The documented fix is to
+    # take transaction control away from the driver and issue BEGIN ourselves.
+    # PostgreSQL needs none of this.
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_disable_implicit_begin(dbapi_connection, _record):  # noqa: ANN001
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _sqlite_emit_begin(conn):  # noqa: ANN001
+        conn.exec_driver_sql("BEGIN")
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 

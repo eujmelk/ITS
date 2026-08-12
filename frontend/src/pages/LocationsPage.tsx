@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   FareZone,
+  ImportReport,
   Location,
   LocationTransfer,
   StopArea,
@@ -111,17 +112,33 @@ export default function LocationsPage() {
       <PageHead
         title="Locations"
         info="Stops, depots, layover points and garages live in one table with a type flag — they are operationally the same kind of thing, a place with a name and coordinates."
-        actions={(['locations', 'areas', 'transfers', 'quality'] as Tab[]).map((t) => (
-          <button key={t} className={tab === t ? 'primary' : ''} onClick={() => setTab(t)}>
-            {t === 'locations'
-              ? 'Locations'
-              : t === 'areas'
-                ? 'Stop areas'
-                : t === 'transfers'
-                  ? 'Transfers'
-                  : 'Data quality'}
-          </button>
-        ))}
+        actions={
+          <>
+            {(['locations', 'areas', 'transfers', 'quality'] as Tab[]).map((t) => (
+              <button key={t} className={tab === t ? 'primary' : ''} onClick={() => setTab(t)}>
+                {t === 'locations'
+                  ? 'Locations'
+                  : t === 'areas'
+                    ? 'Stop areas'
+                    : t === 'transfers'
+                      ? 'Transfers'
+                      : 'Data quality'}
+              </button>
+            ))}
+            <span className="sep" />
+            <button onClick={() => api.downloadBlob('/csv/locations', 'locations.csv')}>
+              Export CSV
+            </button>
+            {canEdit && (
+              <ImportButton
+                onDone={() => {
+                  reloadLocations()
+                  setReloadKey((k) => k + 1)
+                }}
+              />
+            )}
+          </>
+        }
       />
 
       {tab === 'locations' && (
@@ -182,6 +199,193 @@ export default function LocationsPage() {
       {tab === 'transfers' && <TransfersPanel />}
 
       {tab === 'quality' && <QualityPanel />}
+    </>
+  )
+}
+
+/* ---------------------------------------------------------- CSV import */
+
+/**
+ * Two-step import: a dry run first, then apply.
+ *
+ * The dry run is a real pass over the file — every row is parsed, matched and
+ * written inside a transaction that is then rolled back — so the counts shown
+ * are what will actually happen, not a guess from reading the header.
+ */
+function ImportButton({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [replaceAttributes, setReplaceAttributes] = useState(false)
+  const [report, setReport] = useState<ImportReport | null>(null)
+  const [applied, setApplied] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function reset() {
+    setFile(null)
+    setReport(null)
+    setApplied(false)
+    setError('')
+  }
+
+  async function send(dryRun: boolean) {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.upload<ImportReport>('/locations/import', file, {
+        dry_run: dryRun,
+        replace_attributes: replaceAttributes,
+      })
+      setReport(result)
+      if (!dryRun && result.ok) {
+        setApplied(true)
+        onDone()
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const failures = report?.rows.filter((r) => r.action === 'failed') ?? []
+
+  return (
+    <>
+      <button
+        onClick={() => {
+          reset()
+          setOpen(true)
+        }}
+      >
+        Import CSV…
+      </button>
+
+      {open && (
+        <Modal
+          wide
+          title="Import locations from CSV"
+          info={
+            'Round-trips the export: download the CSV, edit it in a spreadsheet, ' +
+            'upload it back. Rows are matched on id, then code; anything ' +
+            'unmatched is created. Blank cells leave the existing value alone, ' +
+            'so a sheet holding only code plus lat/lon is a safe way to add ' +
+            'coordinates in bulk. Unrecognised columns become location ' +
+            'attributes. Nothing is written unless the whole file is clean.'
+          }
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <button
+                onClick={() =>
+                  api.downloadBlob('/csv/locations', 'locations.csv')
+                }
+              >
+                Download current as template
+              </button>
+              <span className="spacer" />
+              <button onClick={() => setOpen(false)}>Close</button>
+              <button onClick={() => send(true)} disabled={!file || busy}>
+                {busy ? 'Checking…' : 'Check file'}
+              </button>
+              <button
+                className="primary"
+                disabled={!report || !report.ok || report.total === 0 || busy || applied}
+                onClick={() => send(false)}
+              >
+                Apply
+              </button>
+            </>
+          }
+        >
+          <Alert kind="err">{error}</Alert>
+          {applied && <Alert kind="ok">Import applied.</Alert>}
+
+          <div className="field">
+            <label>CSV file</label>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null)
+                setReport(null)
+                setApplied(false)
+              }}
+            />
+          </div>
+          <div className="field inline">
+            <input
+              type="checkbox"
+              checked={replaceAttributes}
+              onChange={(e) => setReplaceAttributes(e.target.checked)}
+            />
+            <label>
+              This file is the whole truth for attributes (remove any not listed)
+            </label>
+          </div>
+
+          {report?.fatal && <Alert kind="err">{report.fatal}</Alert>}
+
+          {report && !report.fatal && (
+            <fieldset className="group">
+              <legend>{report.dry_run ? 'Dry run — nothing written' : 'Result'}</legend>
+              <div className="toolbar-row">
+                <span className="tag">{report.total} rows</span>
+                <span className="tag ok">{report.created} new</span>
+                <span className="tag">{report.updated} updated</span>
+                <span className="tag grey">{report.skipped} unchanged</span>
+                {report.failed > 0 && (
+                  <span className="tag err">{report.failed} failed</span>
+                )}
+                <span className="spacer" />
+                <span className="small muted">
+                  read as “{report.delimiter}”-separated
+                </span>
+              </div>
+
+              {report.attribute_columns.length > 0 && (
+                <p className="small" style={{ margin: '0 0 4px' }}>
+                  <span className="muted">Columns treated as attributes: </span>
+                  {report.attribute_columns.join(', ')}
+                </p>
+              )}
+
+              {failures.length > 0 && (
+                <div className="table-wrap" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  <table className="grid">
+                    <thead>
+                      <tr>
+                        <th className="num">Line</th>
+                        <th>Name</th>
+                        <th>Code</th>
+                        <th>Problem</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failures.map((row) => (
+                        <tr key={row.line}>
+                          <td className="num">{row.line}</td>
+                          <td>{row.name}</td>
+                          <td>{row.code}</td>
+                          <td>{row.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {report.failed > 0 && (
+                <Alert kind="err">
+                  Fix these lines and check again — nothing is written while any
+                  row fails.
+                </Alert>
+              )}
+            </fieldset>
+          )}
+        </Modal>
+      )}
     </>
   )
 }

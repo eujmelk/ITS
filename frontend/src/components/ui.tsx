@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ValidationIssue, ValidationReport } from '../api/types'
+import { useApp } from '../state/AppContext'
 import { Info } from '../state/StatusContext'
 
 export { Info }
@@ -8,9 +9,31 @@ export { Info }
 /* ------------------------------------------------------------------ page */
 
 /**
- * The command strip under the tabs: page title, its (i), then the page's
- * buttons. Replaces the old heading-plus-paragraph block — the paragraph now
- * lives behind the (i), in the status bar.
+ * Application logo, first element in the toolbar.
+ *
+ * Served from `frontend/public/its-pico.bmp`. It is deliberately optional:
+ * if the file is absent the element removes itself rather than leaving a
+ * broken-image placeholder in the chrome of every page.
+ */
+export function AppLogo() {
+  const [missing, setMissing] = useState(false)
+  const { config } = useApp()
+  if (missing) return null
+  return (
+    <img
+      className="app-logo"
+      src="/its-pico.bmp"
+      alt=""
+      title={config?.app_name ?? 'Transit Scheduling'}
+      onError={() => setMissing(true)}
+    />
+  )
+}
+
+/**
+ * The command strip under the tabs: logo, page title, its (i), then the
+ * page's buttons. Replaces the old heading-plus-paragraph block — the
+ * paragraph now lives behind the (i), in the status bar.
  */
 export function PageHead({
   title,
@@ -23,6 +46,7 @@ export function PageHead({
 }) {
   return (
     <div className="toolbar">
+      <AppLogo />
       <span className="title">{title}</span>
       {info && <Info>{info}</Info>}
       {actions && <span className="sep" />}

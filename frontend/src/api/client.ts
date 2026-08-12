@@ -140,6 +140,32 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
   },
 
+  /** Upload a file as multipart/form-data. */
+  async upload<T>(path: string, file: File, params?: Record<string, any>): Promise<T> {
+    const body = new FormData()
+    body.append('file', file)
+    const headers = new Headers()
+    const token = getToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    // Deliberately no Content-Type: the browser must set it, because only it
+    // knows the multipart boundary.
+    const response = await fetch(`${API}${path}${qs(params)}`, {
+      method: 'POST',
+      headers,
+      body,
+    })
+    if (!response.ok) {
+      let payload: any = null
+      try {
+        payload = await response.json()
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(response.status, describe(response.status, payload))
+    }
+    return (await response.json()) as T
+  },
+
   async downloadBlob(path: string, filename: string, params?: Record<string, any>) {
     const blob = await request<Blob>(`${path}${qs(params)}`)
     const url = URL.createObjectURL(blob as Blob)
