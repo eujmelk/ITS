@@ -90,13 +90,21 @@ def unwrap_enums(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_updates(obj: Any, payload: BaseModel, skip: Sequence[str] = ()) -> None:
-    """Apply a PATCH body, honouring 'field absent' vs 'field set to null'."""
+    """Apply a PATCH body, honouring 'field absent' vs 'field set to null'.
+
+    Only *column* attributes are assigned. Testing ``hasattr`` instead would
+    also match relationships -- a payload carrying ``attributes`` would then
+    assign a list of plain dicts straight into a relationship collection, and
+    SQLAlchemy raises on flush, surfacing as a 500. Nested collections are the
+    business of the module's own ``on_update`` hook, which knows how to build
+    the right ORM objects.
+    """
+    columns = {c.key for c in type(obj).__mapper__.column_attrs}
     data = unwrap_enums(payload.model_dump(exclude_unset=True))
     for key, value in data.items():
-        if key in skip:
+        if key in skip or key not in columns:
             continue
-        if hasattr(obj, key):
-            setattr(obj, key, value)
+        setattr(obj, key, value)
 
 
 def crud_router(

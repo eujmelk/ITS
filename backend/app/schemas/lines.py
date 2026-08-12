@@ -6,25 +6,6 @@ from app.enums import BoardingType, TransportMode
 from app.schemas.common import ORMModel
 
 
-class LineAttributeBase(BaseModel):
-    attribute_key: str = Field(min_length=1, max_length=64)
-    attribute_value: str | None = Field(default=None, max_length=512)
-
-
-class LineAttributeCreate(LineAttributeBase):
-    line_id: int
-
-
-class LineAttributeUpdate(BaseModel):
-    attribute_key: str | None = Field(default=None, min_length=1, max_length=64)
-    attribute_value: str | None = Field(default=None, max_length=512)
-
-
-class LineAttributeRead(LineAttributeBase, ORMModel):
-    id: int
-    line_id: int
-
-
 class LineBase(BaseModel):
     short_name: str = Field(min_length=1, max_length=16)
     long_name: str | None = Field(default=None, max_length=255)
@@ -37,7 +18,7 @@ class LineBase(BaseModel):
 
 
 class LineCreate(LineBase):
-    attributes: list[LineAttributeBase] = []
+    pass
 
 
 class LineUpdate(BaseModel):
@@ -49,12 +30,10 @@ class LineUpdate(BaseModel):
     text_color: str | None = Field(default=None, pattern=r"^[0-9A-Fa-f]{6}$")
     sort_order: int | None = None
     is_active: bool | None = None
-    attributes: list[LineAttributeBase] | None = None
 
 
 class LineRead(LineBase, ORMModel):
     id: int
-    attributes: list[LineAttributeRead] = []
     pattern_count: int = 0
 
 

@@ -31,12 +31,14 @@ from app.models import (
     Location,
     LocationTransfer,
     Pattern,
+    PatternAttribute,
     PatternStop,
     ScheduleVersion,
     StopArea,
     StopTime,
     Trip,
 )
+from app.services import pattern_attributes
 from app.services.parameters import resolve_text
 from app.timeutil import format_time
 
@@ -246,24 +248,56 @@ def export_feed(db: Session, schedule_version_id: int) -> tuple[bytes, str]:
     patterns = {
         p.id: p for p in db.scalars(select(Pattern)).all()
     }
-    feed.add(
-        "trips.txt",
-        ["route_id", "service_id", "trip_id", "trip_headsign", "trip_short_name", "direction_id", "block_id", "wheelchair_accessible"],
-        [
+
+    # A pattern's reserved attributes (wheelchair_accessible, bikes_allowed)
+    # become real GTFS columns. Everything else on a pattern is internal --
+    # GTFS has nowhere to put "TYPE=EXP", so it stays out of the feed rather
+    # than being smuggled into a field that means something else.
+    pattern_gtfs: dict[int, dict[str, str]] = {}
+    for pattern_id, key, value in db.execute(
+        select(
+            PatternAttribute.pattern_id,
+            PatternAttribute.attribute_key,
+            PatternAttribute.attribute_value,
+        )
+    ).all():
+        mapped = pattern_attributes.gtfs_value(key, value)
+        if mapped is not None:
+            spec = pattern_attributes.GTFS_ATTRIBUTES_BY_KEY[key]
+            pattern_gtfs.setdefault(pattern_id, {})[spec.gtfs_field] = mapped
+
+    trip_rows = []
+    for trip in trips:
+        pattern = patterns.get(trip.pattern_id)
+        if pattern is None:
+            continue
+        from_pattern = pattern_gtfs.get(pattern.id, {})
+        # An explicit value on the trip beats the pattern's default.
+        if trip.wheelchair_accessible is None:
+            wheelchair = from_pattern.get("wheelchair_accessible", "")
+        else:
+            wheelchair = "1" if trip.wheelchair_accessible else "2"
+        trip_rows.append(
             [
-                patterns[trip.pattern_id].line_id,
+                pattern.line_id,
                 trip.calendar_id,
                 trip.id,
                 trip.headsign or "",
                 trip.short_name or "",
-                patterns[trip.pattern_id].direction,
+                pattern.direction,
                 trip.block_id or "",
-                # GTFS: 0 unknown, 1 accessible, 2 not.
-                "" if trip.wheelchair_accessible is None else (1 if trip.wheelchair_accessible else 2),
+                wheelchair,
+                from_pattern.get("bikes_allowed", ""),
             ]
-            for trip in trips
-            if trip.pattern_id in patterns
+        )
+
+    feed.add(
+        "trips.txt",
+        [
+            "route_id", "service_id", "trip_id", "trip_headsign", "trip_short_name",
+            "direction_id", "block_id", "wheelchair_accessible", "bikes_allowed",
         ],
+        trip_rows,
     )
 
     # --- stop_times.txt ----------------------------------------------------

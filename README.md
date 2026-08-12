@@ -76,17 +76,44 @@ awkward without them:
   without cloning the whole pattern. Stored as the *absence* of a stop time,
   so the timetable shows a gap and exports leave it out — rather than a call
   at 00:00 that quietly corrupts the feed.
-- **Pattern attributes.** Locations and lines already had generic key/value
-  attributes; patterns now do too. They describe one *variant* of a line, so
-  `TYPE=EXP` on the express pattern and `TYPE=LOCAL` on the stopping one. Each
-  non-empty **value** prints as an outlined bubble beside the line number —
-  a duty card shows (127) (EXP) — and above the column on a combined
-  timetable. Outlined rather than solid, so it reads as a qualifier on the
-  line rather than as another line number.
+- **Pattern attributes** — see the section below; this is a deliberate
+  deviation from §2 of the architecture doc.
 - **Editable instance name.** The name in the sidebar, on the login page and
   in the browser tab is the `instance_name` setting, not an env var, so it can
   be changed without a redeploy. The agency details next to it are what GTFS
   needs.
+
+## Attributes belong to patterns, not lines
+
+**This differs from §2 of the architecture doc**, which put generic
+attributes on `lines`. In practice they describe a *variant* of a service —
+express, school-days-only, via the hospital — and those differ between a
+line's patterns rather than applying to all of them. Having both levels was
+ambiguous: nothing said which one won when they disagreed. So `line_attributes`
+is gone and `pattern_attributes` replaces it.
+
+Migration `0004` copies any existing line attributes onto that line's patterns
+before dropping the table, so nothing already entered is lost. A pattern that
+already defines the same key keeps its own value — the more specific statement
+wins. Locations keep their attributes unchanged; a stop is a single thing with
+no variants.
+
+Each non-empty **value** prints as an outlined bubble beside the line number —
+a duty card shows (127) (EXP), and a combined timetable puts it above the
+column. Outlined rather than solid, so it reads as a qualifier on the line
+rather than as another line number.
+
+**Two keys are reserved because GTFS has real fields for them:**
+`wheelchair_accessible` and `bikes_allowed`. Their values are validated on
+write (`yes` / `no` / `unknown`, plus the obvious synonyms), so a feed can
+never be built with `wheelchair_accessible=maybe` in it, and they are exported
+into `trips.txt` rather than silently dropped. A value set on the trip itself
+still beats the pattern's default. These two are *not* printed as bubbles —
+"yes" beside a line number tells a driver nothing.
+
+Everything else is internal. GTFS has nowhere to carry "TYPE=EXP", and
+smuggling it into a field that means something else would produce a feed that
+lies. `GET /api/v1/pattern-attributes/reserved/gtfs` lists what is reserved.
 
 ## Printed output
 

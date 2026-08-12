@@ -29,28 +29,11 @@ class Line(TimestampMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    attributes: Mapped[list[LineAttribute]] = relationship(
-        back_populates="line", cascade="all, delete-orphan"
-    )
+    # Attributes belong to patterns, not lines: they describe a *variant* of
+    # the service (express, school-days-only, via the hospital), and those
+    # differ between a line's patterns rather than applying to all of them.
     patterns: Mapped[list[Pattern]] = relationship(
         back_populates="line", cascade="all, delete-orphan"
-    )
-
-
-class LineAttribute(Base):
-    __tablename__ = "line_attributes"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    line_id: Mapped[int] = mapped_column(
-        ForeignKey("lines.id", ondelete="CASCADE"), index=True
-    )
-    attribute_key: Mapped[str] = mapped_column(String(64))
-    attribute_value: Mapped[str | None] = mapped_column(String(512), default=None)
-
-    line: Mapped[Line] = relationship(back_populates="attributes")
-
-    __table_args__ = (
-        UniqueConstraint("line_id", "attribute_key", name="uq_line_attribute"),
     )
 
 

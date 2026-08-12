@@ -32,6 +32,7 @@ from app.schemas.schedule import (
     TimetableColumn,
     TimetableRow,
 )
+from app.services.pattern_attributes import GTFS_ATTRIBUTES_BY_KEY
 
 
 def merge_stop_orders(orders: list[list[int]]) -> list[int]:
@@ -275,14 +276,25 @@ def build_timetable(
 
 
 def _pattern_badges(db: Session, pattern_ids: list[int]) -> dict[int, list[str]]:
+    """Bubble values per pattern.
+
+    Reserved GTFS keys are left out -- they are exported into the feed, not
+    printed above a column, where "yes" would mean nothing to a reader.
+    """
     if not pattern_ids:
         return {}
     result: dict[int, list[str]] = {}
-    for pattern_id, value in db.execute(
-        select(PatternAttribute.pattern_id, PatternAttribute.attribute_value)
+    for pattern_id, key, value in db.execute(
+        select(
+            PatternAttribute.pattern_id,
+            PatternAttribute.attribute_key,
+            PatternAttribute.attribute_value,
+        )
         .where(PatternAttribute.pattern_id.in_(pattern_ids))
         .order_by(PatternAttribute.attribute_key)
     ).all():
+        if key in GTFS_ATTRIBUTES_BY_KEY:
+            continue
         if (value or "").strip():
             result.setdefault(pattern_id, []).append(value.strip())
     return result

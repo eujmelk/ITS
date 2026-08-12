@@ -46,6 +46,109 @@ def test_merge_of_nothing_is_nothing():
 # --------------------------------------------------------------------------
 
 
+def test_lines_have_no_attributes(client, auth):
+    """Attributes describe a variant of a service, so they live on patterns.
+
+    Having both levels was ambiguous -- nothing said which won when they
+    disagreed -- so the line-level table is gone.
+    """
+    line = client.get(f"{API}/lines/{state['line']}", headers=auth).json()
+    assert "attributes" not in line
+
+    assert client.get(f"{API}/line-attributes", headers=auth).status_code == 404
+
+    # A stray `attributes` key is ignored, not stored somewhere invisible.
+    response = client.patch(
+        f"{API}/lines/{state['line']}",
+        json={"attributes": [{"attribute_key": "TYPE", "attribute_value": "EXP"}]},
+        headers=auth,
+    )
+    assert response.status_code == 200, response.text
+    assert "attributes" not in response.json()
+
+
+def test_setting_attributes_does_not_500(client, auth):
+    """Regression: `apply_updates` matched the SQLAlchemy *relationship* by
+    name and assigned a list of plain dicts into it, which SQLAlchemy rejects
+    on flush -- surfacing to the user as "Request failed (500)".
+    """
+    response = client.patch(
+        f"{API}/patterns/{state['pattern']}",
+        json={"attributes": [{"attribute_key": "via", "attribute_value": "Market"}]},
+        headers=auth,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["badges"] == ["Market"]
+
+    # The same shape on a location, which had the identical latent bug.
+    location = client.patch(
+        f"{API}/locations/{state['stops'][1]}",
+        json={"attributes": [{"attribute_key": "lit", "attribute_value": "true"}]},
+        headers=auth,
+    )
+    assert location.status_code == 200, location.text
+    assert location.json()["attributes"][0]["attribute_key"] == "lit"
+
+
+# --------------------------------------------------------------------------
+# GTFS-reserved keys
+# --------------------------------------------------------------------------
+
+
+def test_reserved_keys_are_advertised(client, auth):
+    rows = client.get(f"{API}/pattern-attributes/reserved/gtfs", headers=auth).json()
+    keys = {row["key"] for row in rows}
+    assert keys == {"wheelchair_accessible", "bikes_allowed"}
+
+
+def test_a_reserved_key_rejects_a_value_gtfs_cannot_express(client, auth):
+    response = client.patch(
+        f"{API}/patterns/{state['pattern']}",
+        json={
+            "attributes": [
+                {"attribute_key": "wheelchair_accessible", "attribute_value": "maybe"}
+            ]
+        },
+        headers=auth,
+    )
+    assert response.status_code == 422
+    assert "GTFS field" in response.json()["detail"]
+
+
+def test_reserved_keys_export_into_trips_and_do_not_become_bubbles(client, auth):
+    import csv
+    import io
+    import zipfile
+
+    updated = client.patch(
+        f"{API}/patterns/{state['pattern']}",
+        json={
+            "attributes": [
+                {"attribute_key": "TYPE", "attribute_value": "LOCAL"},
+                {"attribute_key": "wheelchair_accessible", "attribute_value": "yes"},
+                {"attribute_key": "bikes_allowed", "attribute_value": "no"},
+            ]
+        },
+        headers=auth,
+    )
+    assert updated.status_code == 200, updated.text
+    # "yes" beside a line number tells a driver nothing, so reserved keys are
+    # exported but not printed as bubbles.
+    assert updated.json()["badges"] == ["LOCAL"]
+
+    response = client.get(
+        f"{API}/gtfs/export",
+        params={"schedule_version_id": state["board"]},
+        headers=auth,
+    )
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    rows = list(csv.DictReader(io.StringIO(archive.read("trips.txt").decode("utf-8"))))
+
+    trip = next(r for r in rows if r["trip_id"] == str(state["trips"][0]))
+    assert trip["wheelchair_accessible"] == "1"  # GTFS: 1 = yes
+    assert trip["bikes_allowed"] == "2"  # GTFS: 2 = no
+
+
 def test_attributes_can_be_set_on_a_pattern(client, auth):
     response = client.patch(
         f"{API}/patterns/{state['pattern']}",

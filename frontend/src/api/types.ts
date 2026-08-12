@@ -83,6 +83,10 @@ export interface TransferEdge {
   source: 'stop_area' | 'explicit'
 }
 
+/**
+ * Note: a line has no attributes. They belong to its patterns, because they
+ * describe a variant of the service rather than the line as a whole.
+ */
 export interface Line {
   id: number
   short_name: string
@@ -93,7 +97,6 @@ export interface Line {
   text_color: string | null
   sort_order: number
   is_active: boolean
-  attributes: Attribute[]
   pattern_count: number
 }
 

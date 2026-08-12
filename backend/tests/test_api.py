@@ -174,17 +174,13 @@ def test_transfers_are_never_inferred_from_proximity(client, auth):
 def test_create_line_and_pattern(client, auth):
     line = client.post(
         f"{API}/lines",
-        json={
-            "short_name": "T1",
-            "long_name": "Test line",
-            "mode": "bus",
-            "attributes": [{"attribute_key": "night_service", "attribute_value": "false"}],
-        },
+        json={"short_name": "T1", "long_name": "Test line", "mode": "bus"},
         headers=auth,
     )
     assert line.status_code == 201, line.text
     state["line"] = line.json()["id"]
-    assert line.json()["attributes"][0]["attribute_key"] == "night_service"
+    # Attributes belong to patterns, not lines -- see test_patterns_combined.
+    assert "attributes" not in line.json()
 
     pattern = client.post(
         f"{API}/patterns",

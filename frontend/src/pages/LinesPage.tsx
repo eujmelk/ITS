@@ -3,11 +3,7 @@ import { api, ApiError } from '../api/client'
 import type { Line, Location, Pattern, PatternStop } from '../api/types'
 import { CrudTable, useList } from '../components/Crud'
 import type { Column, FormField } from '../components/Crud'
-import {
-  AttributeEditor,
-  LINE_ATTRIBUTE_SUGGESTIONS,
-  PATTERN_ATTRIBUTE_SUGGESTIONS,
-} from '../components/AttributeEditor'
+import { AttributeEditor, PATTERN_ATTRIBUTE_SUGGESTIONS } from '../components/AttributeEditor'
 import { EntitySelect } from '../components/EntitySelect'
 import { MapView } from '../components/MapView'
 import { Alert, Empty, Field, Modal, PageHead, Panel, Spinner } from '../components/ui'
@@ -51,18 +47,6 @@ export default function LinesPage() {
       render: (row) =>
         row.is_active ? <span className="tag ok">active</span> : <span className="tag grey">inactive</span>,
     },
-    {
-      key: 'attributes',
-      label: 'Attributes',
-      render: (row) =>
-        row.attributes?.length ? (
-          <span className="small">
-            {row.attributes.map((a) => `${a.attribute_key}=${a.attribute_value ?? ''}`).join(', ')}
-          </span>
-        ) : (
-          <span className="muted">—</span>
-        ),
-    },
   ]
 
   const fields: FormField[] = [
@@ -92,75 +76,15 @@ export default function LinesPage() {
           defaults={{ mode: 'bus', is_active: true, sort_order: 0 }}
           refreshToken={linesToken}
           extraRowActions={(row) => (
-            <>
-              <button className="small" onClick={() => setSelectedLine(row)}>
-                Patterns
-              </button>{' '}
-              {canEdit && (
-                <LineAttributesButton
-                  line={row}
-                  onSaved={() => setLinesToken((n) => n + 1)}
-                />
-              )}
-            </>
+            <button className="small" onClick={() => setSelectedLine(row)}>
+              Patterns ({row.pattern_count})
+            </button>
           )}
         />
       </Panel>
 
       {selectedLine && (
         <PatternsPanel line={selectedLine} onClose={() => setSelectedLine(null)} />
-      )}
-    </>
-  )
-}
-
-function LineAttributesButton({ line, onSaved }: { line: Line; onSaved: () => void }) {
-  const [open, setOpen] = useState(false)
-  const [rows, setRows] = useState(line.attributes ?? [])
-  const [error, setError] = useState('')
-
-  async function save() {
-    setError('')
-    try {
-      await api.patch(`/lines/${line.id}`, {
-        attributes: rows
-          .filter((r) => r.attribute_key.trim())
-          .map((r) => ({ attribute_key: r.attribute_key.trim(), attribute_value: r.attribute_value })),
-      })
-      setOpen(false)
-      onSaved()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e))
-    }
-  }
-
-  return (
-    <>
-      <button
-        className="small"
-        onClick={() => {
-          setRows(line.attributes ?? [])
-          setOpen(true)
-        }}
-      >
-        Attributes
-      </button>
-      {open && (
-        <Modal
-          title={`Attributes — line ${line.short_name}`}
-          onClose={() => setOpen(false)}
-          footer={
-            <>
-              <button onClick={() => setOpen(false)}>Cancel</button>
-              <button className="primary" onClick={save}>
-                Save
-              </button>
-            </>
-          }
-        >
-          <Alert kind="err">{error}</Alert>
-          <AttributeEditor value={rows} onChange={setRows} suggestions={LINE_ATTRIBUTE_SUGGESTIONS} />
-        </Modal>
       )}
     </>
   )
@@ -334,12 +258,21 @@ function PatternAttributesButton({
         >
           <Alert kind="err">{error}</Alert>
           <p className="small muted" style={{ marginTop: 0 }}>
-            These describe this <em>variant</em> of the line, not the whole
-            line. Each non-empty <strong>value</strong> prints as a bubble
-            beside the line number — set <code>TYPE</code> to <code>EXP</code>{' '}
-            and a duty card shows{' '}
+            These describe this <em>variant</em> of the line — express,
+            school-days-only, via the hospital — which is why they live on the
+            pattern and not on the line. Each non-empty <strong>value</strong>{' '}
+            prints as a bubble beside the line number: set <code>TYPE</code> to{' '}
+            <code>EXP</code> and a duty card shows{' '}
             <span className="bubble">127</span>
             <span className="bubble">EXP</span>.
+          </p>
+          <p className="small muted">
+            Two keys are reserved because GTFS has real fields for them —{' '}
+            <code>wheelchair_accessible</code> and <code>bikes_allowed</code>.
+            Their value must be <code>yes</code>, <code>no</code> or{' '}
+            <code>unknown</code>, and they are written into the exported feed
+            rather than shown as bubbles. Everything else is internal: GTFS has
+            nowhere to carry it.
           </p>
           <AttributeEditor
             value={rows}

@@ -4,21 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.deps import DbSession, require_planner
+from app.deps import DbSession, ReaderUser, require_planner
 from app.enums import LocationType
-from app.models import (
-    Line,
-    LineAttribute,
-    Location,
-    Pattern,
-    PatternAttribute,
-    PatternStop,
-    Trip,
-)
+from app.models import Line, Location, Pattern, PatternAttribute, PatternStop, Trip
 from app.schemas.lines import (
-    LineAttributeCreate,
-    LineAttributeRead,
-    LineAttributeUpdate,
     LineCreate,
     LineRead,
     LineUpdate,
@@ -31,6 +20,7 @@ from app.schemas.lines import (
     PatternStopsReplace,
     PatternUpdate,
 )
+from app.services import pattern_attributes as pattern_attribute_service
 from app.services.crud import check_exists, commit, crud_router, get_or_404
 
 
@@ -38,6 +28,11 @@ def serialize_line(obj: Line, db: Session) -> LineRead:
     data = LineRead.model_validate(obj)
     data.pattern_count = len(obj.patterns)
     return data
+
+
+def pattern_badges(attributes) -> list[str]:
+    """The values printed as bubbles: "TYPE=EXP" shows as "EXP"."""
+    return pattern_attribute_service.badge_values(attributes)
 
 
 def _serialize_pattern_stop(stop: PatternStop) -> PatternStopRead:
@@ -48,15 +43,6 @@ def _serialize_pattern_stop(stop: PatternStop) -> PatternStopRead:
         data.lat = stop.location.lat
         data.lon = stop.location.lon
     return data
-
-
-def pattern_badges(attributes) -> list[str]:
-    """The values printed as bubbles: "TYPE=EXP" shows as "EXP"."""
-    return [
-        (a.attribute_value or "").strip()
-        for a in sorted(attributes, key=lambda a: a.attribute_key)
-        if (a.attribute_value or "").strip()
-    ]
 
 
 def serialize_pattern(obj: Pattern, db: Session) -> PatternDetail:
@@ -73,31 +59,6 @@ def serialize_pattern(obj: Pattern, db: Session) -> PatternDetail:
     return data
 
 
-def _replace_line_attributes(obj: Line, entries, db: Session) -> None:
-    for existing in list(obj.attributes):
-        db.delete(existing)
-    db.flush()
-    for entry in entries:
-        db.add(
-            LineAttribute(
-                line_id=obj.id,
-                attribute_key=entry.attribute_key,
-                attribute_value=entry.attribute_value,
-            )
-        )
-    db.flush()
-
-
-def _line_on_create(obj: Line, payload: LineCreate, db: Session) -> None:
-    if payload.attributes:
-        _replace_line_attributes(obj, payload.attributes, db)
-
-
-def _line_on_update(obj: Line, payload: LineUpdate, db: Session) -> None:
-    if payload.attributes is not None:
-        _replace_line_attributes(obj, payload.attributes, db)
-
-
 router = crud_router(
     model=Line,
     read_schema=LineRead,
@@ -108,28 +69,16 @@ router = crud_router(
     search_fields=("short_name", "long_name", "description"),
     filter_fields=("mode", "is_active"),
     order_by=("sort_order", "short_name"),
-    options=(selectinload(Line.attributes), selectinload(Line.patterns)),
+    options=(selectinload(Line.patterns),),
     serialize=serialize_line,
-    on_create=_line_on_create,
-    on_update=_line_on_update,
     label="Line",
-)
-
-line_attributes_router = crud_router(
-    model=LineAttribute,
-    read_schema=LineAttributeRead,
-    create_schema=LineAttributeCreate,
-    update_schema=LineAttributeUpdate,
-    prefix="/line-attributes",
-    tags=["lines"],
-    search_fields=("attribute_key", "attribute_value"),
-    filter_fields=("line_id", "attribute_key"),
-    order_by=("line_id", "attribute_key"),
-    label="Line attribute",
 )
 
 
 def _replace_pattern_attributes(obj: Pattern, entries, db: Session) -> None:
+    # Reserved GTFS keys are checked before anything is written, so a bad
+    # value is a 422 rather than a feed that fails validation weeks later.
+    pattern_attribute_service.validate(entries)
     for existing in list(obj.attributes):
         db.delete(existing)
     db.flush()
@@ -188,6 +137,10 @@ patterns_router = crud_router(
     label="Pattern",
 )
 
+def _attribute_check(obj: PatternAttribute, payload, db: Session) -> None:
+    pattern_attribute_service.validate([obj])
+
+
 pattern_attributes_router = crud_router(
     model=PatternAttribute,
     read_schema=PatternAttributeRead,
@@ -198,8 +151,32 @@ pattern_attributes_router = crud_router(
     search_fields=("attribute_key", "attribute_value"),
     filter_fields=("pattern_id", "attribute_key"),
     order_by=("pattern_id", "attribute_key"),
+    on_create=_attribute_check,
+    on_update=_attribute_check,
     label="Pattern attribute",
 )
+
+
+@pattern_attributes_router.get(
+    "/reserved/gtfs",
+    response_model=list[dict],
+    summary="Attribute keys that map to GTFS fields",
+)
+def reserved_keys(_user: ReaderUser):
+    """Keys whose values are validated and exported into ``trips.txt``.
+
+    Everything else is internal: it prints as a bubble but GTFS has nowhere
+    to carry it.
+    """
+    return [
+        {
+            "key": spec.key,
+            "gtfs_field": spec.gtfs_field,
+            "description": spec.description,
+            "accepted": ["yes", "no", "unknown"],
+        }
+        for spec in pattern_attribute_service.GTFS_ATTRIBUTES
+    ]
 
 
 def _write_pattern_stops(db: Session, pattern: Pattern, stops) -> None:
@@ -332,9 +309,4 @@ def duplicate_pattern(pattern_id: int, db: DbSession, name: str | None = None):
     return serialize_pattern(copy, db)
 
 
-routers: list[APIRouter] = [
-    router,
-    line_attributes_router,
-    patterns_router,
-    pattern_attributes_router,
-]
+routers: list[APIRouter] = [router, patterns_router, pattern_attributes_router]

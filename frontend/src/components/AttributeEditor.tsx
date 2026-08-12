@@ -21,25 +21,23 @@ export const LOCATION_ATTRIBUTE_SUGGESTIONS = [
 ]
 
 /**
- * Pattern attributes describe one *variant* of a line, not the whole line.
- * Their values print as bubbles beside the line number on duty cards and
- * above the column on combined timetables — "127" "EXP".
+ * Attributes belong to patterns, not lines: they describe one *variant* of a
+ * service, and those differ between a line's patterns rather than applying to
+ * all of them.
+ *
+ * The first two are reserved — they map to real GTFS fields on `trips.txt`,
+ * so their values are validated and exported. The rest are yours; they print
+ * as bubbles beside the line number and stay internal.
  */
+export const GTFS_RESERVED_ATTRIBUTES = ['wheelchair_accessible', 'bikes_allowed']
+
 export const PATTERN_ATTRIBUTE_SUGGESTIONS = [
+  ...GTFS_RESERVED_ATTRIBUTES,
   'TYPE',
   'SERVICE',
+  'via',
   'peak_only',
   'school_days',
-  'via',
-  'operator_notes',
-]
-
-export const LINE_ATTRIBUTE_SUGGESTIONS = [
-  'wheelchair_accessible',
-  'peak_only',
-  'night_service',
-  'seasonal',
-  'express',
   'operator_notes',
 ]
 

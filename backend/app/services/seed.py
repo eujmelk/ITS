@@ -24,11 +24,11 @@ from app.models import (
     FareRule,
     FareZone,
     Line,
-    LineAttribute,
     Location,
     LocationAttribute,
     LocationTransfer,
     Pattern,
+    PatternAttribute,
     PatternStop,
     ScheduleVersion,
     StopArea,
@@ -166,8 +166,6 @@ def _seed_demo(db: Session) -> None:
     )
     db.add(line)
     db.flush()
-    db.add(LineAttribute(line_id=line.id, attribute_key="wheelchair_accessible", attribute_value="true"))
-    db.add(LineAttribute(line_id=line.id, attribute_key="night_service", attribute_value="false"))
 
     outbound = Pattern(
         line_id=line.id, name="Northgate to Riverside", direction=0,
@@ -179,6 +177,23 @@ def _seed_demo(db: Session) -> None:
     )
     db.add_all([outbound, inbound])
     db.flush()
+
+    # Attributes live on patterns, not lines: they describe a variant of the
+    # service. The reserved GTFS keys are exported into trips.txt; TYPE is
+    # ours and prints as a bubble beside the line number.
+    for pattern in (outbound, inbound):
+        db.add_all(
+            [
+                PatternAttribute(
+                    pattern_id=pattern.id, attribute_key="TYPE", attribute_value="LOCAL"
+                ),
+                PatternAttribute(
+                    pattern_id=pattern.id,
+                    attribute_key="wheelchair_accessible",
+                    attribute_value="yes",
+                ),
+            ]
+        )
 
     outbound_stops = [stops[5], stops[0], stops[2], stops[3], stops[4]]
     inbound_stops = [stops[4], stops[3], stops[2], stops[1], stops[5]]

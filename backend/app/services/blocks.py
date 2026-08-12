@@ -113,6 +113,8 @@ def resolve_pieces(db: Session, pieces: list[BlockPiece]) -> dict[int, Endpoints
             trip_patterns[trip_id] = pattern_id
 
         if trip_patterns:
+            from app.services.pattern_attributes import GTFS_ATTRIBUTES_BY_KEY
+
             by_pattern: dict[int, list[str]] = {}
             for pattern_id, key, value in db.execute(
                 select(
@@ -123,7 +125,10 @@ def resolve_pieces(db: Session, pieces: list[BlockPiece]) -> dict[int, Endpoints
                 .where(PatternAttribute.pattern_id.in_(set(trip_patterns.values())))
                 .order_by(PatternAttribute.attribute_key)
             ).all():
-                del key
+                # Reserved GTFS keys are exported, not printed: "yes" beside a
+                # line number tells a driver nothing.
+                if key in GTFS_ATTRIBUTES_BY_KEY:
+                    continue
                 if (value or "").strip():
                     by_pattern.setdefault(pattern_id, []).append(value.strip())
             trip_badges = {
