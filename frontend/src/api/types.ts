@@ -125,6 +125,9 @@ export interface Pattern {
   stop_count: number
   total_run_seconds: number
   stops: PatternStop[]
+  attributes: Attribute[]
+  /** Non-empty attribute values — what prints as bubbles, e.g. ["EXP"]. */
+  badges: string[]
 }
 
 export interface ScheduleVersion {
@@ -207,6 +210,15 @@ export interface Trip {
   calls?: TripCall[]
 }
 
+export interface TimetableColumn {
+  trip_id: number
+  pattern_id: number
+  pattern_name: string | null
+  line_short_name: string | null
+  headsign: string | null
+  badges: string[]
+}
+
 export interface Timetable {
   schedule_version_id: number
   schedule_version_name: string
@@ -215,18 +227,30 @@ export interface Timetable {
   line_long_name: string | null
   pattern_id: number
   pattern_name: string
+  /** Every pattern merged into this grid, in merge order. */
+  pattern_ids: number[]
+  pattern_names: string[]
+  combined: boolean
   direction: number
   calendar_id: number | null
   calendar_name: string | null
+  /** The trips on this page, left to right in departure order. */
   trip_ids: number[]
+  columns: TimetableColumn[]
   rows: {
     pattern_stop_id: number
     sequence: number
     location_id: number
     location_name: string
     is_timepoint: boolean
+    /** Only some of the combined patterns serve this stop. */
+    partial: boolean
     cells: { trip_id: number; departure_seconds: string | null }[]
   }[]
+  /** Unpaged count, so a slice is never mistaken for the whole thing. */
+  total_trips: number
+  limit: number | null
+  offset: number
 }
 
 export interface FareZone {

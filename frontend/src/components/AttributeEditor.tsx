@@ -20,6 +20,20 @@ export const LOCATION_ATTRIBUTE_SUGGESTIONS = [
   'fuel_type_supported',
 ]
 
+/**
+ * Pattern attributes describe one *variant* of a line, not the whole line.
+ * Their values print as bubbles beside the line number on duty cards and
+ * above the column on combined timetables — "127" "EXP".
+ */
+export const PATTERN_ATTRIBUTE_SUGGESTIONS = [
+  'TYPE',
+  'SERVICE',
+  'peak_only',
+  'school_days',
+  'via',
+  'operator_notes',
+]
+
 export const LINE_ATTRIBUTE_SUGGESTIONS = [
   'wheelchair_accessible',
   'peak_only',

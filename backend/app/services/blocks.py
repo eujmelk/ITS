@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,6 +32,9 @@ class Endpoints:
     label: str | None = None
     line_short_name: str | None = None
     headsign: str | None = None
+    #: Pattern attribute values, e.g. ["EXP"]. Printed as bubbles next to the
+    #: line number on duty cards.
+    badges: list[str] = field(default_factory=list)
 
 
 def trip_endpoints(db: Session, trip_ids: list[int]) -> dict[int, Endpoints]:
@@ -95,16 +98,38 @@ def resolve_pieces(db: Session, pieces: list[BlockPiece]) -> dict[int, Endpoints
     ends = trip_endpoints(db, trip_ids)
 
     trip_labels: dict[int, tuple[str | None, str | None]] = {}
+    trip_badges: dict[int, list[str]] = {}
     if trip_ids:
-        from app.models import Line, Pattern  # local import avoids a cycle
+        from app.models import Line, Pattern, PatternAttribute  # local: avoids a cycle
 
-        for trip_id, short_name, headsign in db.execute(
-            select(Trip.id, Line.short_name, Trip.headsign)
+        trip_patterns: dict[int, int] = {}
+        for trip_id, pattern_id, short_name, headsign in db.execute(
+            select(Trip.id, Pattern.id, Line.short_name, Trip.headsign)
             .join(Pattern, Trip.pattern_id == Pattern.id)
             .join(Line, Pattern.line_id == Line.id)
             .where(Trip.id.in_(trip_ids))
         ).all():
             trip_labels[trip_id] = (short_name, headsign)
+            trip_patterns[trip_id] = pattern_id
+
+        if trip_patterns:
+            by_pattern: dict[int, list[str]] = {}
+            for pattern_id, key, value in db.execute(
+                select(
+                    PatternAttribute.pattern_id,
+                    PatternAttribute.attribute_key,
+                    PatternAttribute.attribute_value,
+                )
+                .where(PatternAttribute.pattern_id.in_(set(trip_patterns.values())))
+                .order_by(PatternAttribute.attribute_key)
+            ).all():
+                del key
+                if (value or "").strip():
+                    by_pattern.setdefault(pattern_id, []).append(value.strip())
+            trip_badges = {
+                trip_id: by_pattern.get(pattern_id, [])
+                for trip_id, pattern_id in trip_patterns.items()
+            }
 
     location_ids = {
         lid
@@ -140,6 +165,7 @@ def resolve_pieces(db: Session, pieces: list[BlockPiece]) -> dict[int, Endpoints
                 label=f"{short_name or '?'} {headsign or ''}".strip(),
                 line_short_name=short_name,
                 headsign=headsign,
+                badges=trip_badges.get(piece.trip_id, []),
             )
         else:
             resolved[piece.id] = Endpoints(

@@ -528,6 +528,40 @@ def test_unassigned_trips_connects_filter_runs_server_side(client, auth):
     assert late["total"] == 0
 
 
+def test_not_before_accepts_a_clock_time_not_just_a_number(client, auth):
+    """Regression: the service-day time type works on request bodies, but as a
+    query parameter FastAPI rebuilt the field from the base annotation and
+    dropped the parser, so "06:09:30" came back as "not a valid integer".
+    """
+    for value in ("06:09:30", "06:09", "6:09"):
+        response = client.get(
+            f"{API}/fleet/unassigned-trips",
+            params={"schedule_version_id": state["board"], "not_before": value},
+            headers=auth,
+        )
+        assert response.status_code == 200, f"{value}: {response.text}"
+
+    # Connecting trips really are found, which is what the bug hid.
+    connecting = client.get(
+        f"{API}/fleet/unassigned-trips",
+        params={
+            "schedule_version_id": state["board"],
+            "connects_from_location_id": state["stops"][0],
+            "not_before": "06:00:00",
+        },
+        headers=auth,
+    ).json()
+    assert connecting["total"] >= 1
+
+    nonsense = client.get(
+        f"{API}/fleet/unassigned-trips",
+        params={"schedule_version_id": state["board"], "not_before": "half past six"},
+        headers=auth,
+    )
+    assert nonsense.status_code == 422
+    assert "not_before" in nonsense.json()["detail"]
+
+
 def test_listing_reports_the_unpaged_total(client, auth):
     """A truncated page must never look like the whole collection."""
     page = client.get(f"{API}/locations", params={"limit": 2}, headers=auth).json()

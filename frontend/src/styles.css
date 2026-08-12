@@ -186,6 +186,14 @@ td .entity-select-menu { min-width: 260px; }
 .tag.warn { background: var(--warn-soft); color: var(--warn); }
 .tag.err { background: var(--err-soft); color: var(--err); }
 
+/* Pattern attribute bubble: outlined, so it reads as a qualifier on the line
+   rather than as another line number. */
+.bubble {
+  display: inline-block; border: 1px solid var(--brand); color: var(--brand);
+  border-radius: 9px; padding: 0 7px; margin-right: 3px;
+  font-size: 11px; font-weight: 600; letter-spacing: .3px;
+}
+
 .alert { padding: 9px 12px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; }
 .alert.err { background: var(--err-soft); color: var(--err); border: 1px solid #f5c6c2; }
 .alert.ok { background: #e6f4ec; color: var(--ok); border: 1px solid #b7e0c8; }
@@ -245,6 +253,14 @@ td .entity-select-menu { min-width: 260px; }
 .timetable tr.timepoint td { font-weight: 600; }
 .timetable tr.timepoint td.stopname { border-left: 3px solid var(--brand); }
 .timetable td.blank { color: #c3c8ce; text-align: center; }
+
+.pattern-picker {
+  display: flex; flex-direction: column; gap: 2px; max-height: 96px;
+  overflow-y: auto; border: 1px solid var(--line); border-radius: 4px;
+  padding: 5px 8px; background: #fff; min-width: 240px;
+}
+.pattern-option { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.pattern-option input { width: auto; }
 
 .piece-row { display: grid; grid-template-columns: 34px 96px 1fr 1fr 90px 90px 60px; gap: 6px; align-items: center; margin-bottom: 5px; }
 .piece-row .seq { color: var(--muted); font-size: 12px; text-align: right; }

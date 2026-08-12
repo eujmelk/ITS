@@ -1,5 +1,7 @@
 """Schedule boards, calendars, trips and the timetable grid."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -465,7 +467,15 @@ def get_timetable(
     db: DbSession,
     _user: ReaderUser,
     schedule_version_id: int,
-    pattern_id: int,
+    pattern_id: Annotated[
+        list[int],
+        Query(
+            description=(
+                "Repeat to combine patterns onto one sheet, e.g. "
+                "?pattern_id=3&pattern_id=4. They must belong to the same line."
+            )
+        ),
+    ],
     calendar_id: int | None = None,
     timepoints_only: bool = False,
     limit: int | None = Query(

@@ -4,7 +4,13 @@ from app.models.auth import User
 from app.models.base import Base
 from app.models.fares import FareRule, FareZone
 from app.models.fleet import Block, BlockPiece, Vehicle, VehicleType
-from app.models.lines import Line, LineAttribute, Pattern, PatternStop
+from app.models.lines import (
+    Line,
+    LineAttribute,
+    Pattern,
+    PatternAttribute,
+    PatternStop,
+)
 from app.models.locations import (
     Location,
     LocationAttribute,
@@ -39,6 +45,7 @@ __all__ = [
     "LocationTransfer",
     "Parameter",
     "Pattern",
+    "PatternAttribute",
     "PatternStop",
     "ScheduleVersion",
     "StopArea",

@@ -69,11 +69,30 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.blob()) as unknown as T
 }
 
+/**
+ * Build a query string.
+ *
+ * Arrays repeat the key (`?pattern_id=3&pattern_id=4`), which is what FastAPI
+ * expects for a `list[int]` parameter. `_repeated` takes explicit
+ * `[key, value]` pairs for the same purpose when the caller has already built
+ * them.
+ */
 function qs(params?: Record<string, any>): string {
   if (!params) return ''
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
+    if (key === '_repeated') {
+      for (const [k, v] of (value ?? []) as [string, string][]) search.append(k, v)
+      continue
+    }
     if (value === undefined || value === null || value === '') continue
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === undefined || item === null || item === '') continue
+        search.append(key, String(item))
+      }
+      continue
+    }
     search.set(key, String(value))
   }
   const text = search.toString()

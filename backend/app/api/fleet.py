@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.deps import DbSession, ReaderUser, require_planner
-from app.timeutil import OptionalTimeStr
+from app.timeutil import TimeParseError, parse_time
 from app.models import (
     Block,
     BlockPiece,
@@ -303,8 +303,14 @@ def unassigned_trips(
         default=None,
         description="Only trips starting here -- where the block currently is.",
     ),
-    not_before: OptionalTimeStr = Query(
-        default=None, description="Only trips departing at or after this time."
+    # Plain string, parsed by hand below. The Annotated service-day time type
+    # works on request *bodies*, where Pydantic owns the whole model, but as a
+    # query parameter FastAPI rebuilds the field from the base annotation and
+    # the "HH:MM:SS" -> seconds validator is dropped, so a perfectly good
+    # "06:09:30" came back as "Input should be a valid integer".
+    not_before: str | None = Query(
+        default=None,
+        description="Only trips departing at or after this time, e.g. 06:09:30.",
     ),
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
@@ -316,6 +322,13 @@ def unassigned_trips(
     scheduler actually wants -- trips that start where the bus already is, no
     earlier than it gets there -- is usually a handful of them.
     """
+    try:
+        not_before_seconds = parse_time(not_before) if not_before else None
+    except TimeParseError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"not_before: {exc}"
+        ) from exc
+
     stmt = (
         select(Trip.id, Line.short_name, Trip.headsign, Pattern.direction, Trip.pattern_id)
         .join(Pattern, Trip.pattern_id == Pattern.id)
@@ -336,10 +349,10 @@ def unassigned_trips(
             endpoint is None or endpoint.from_location_id != connects_from_location_id
         ):
             continue
-        if not_before is not None and (
+        if not_before_seconds is not None and (
             endpoint is None
             or endpoint.start_seconds is None
-            or endpoint.start_seconds < not_before
+            or endpoint.start_seconds < not_before_seconds
         ):
             continue
         result.append(

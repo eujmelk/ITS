@@ -3,7 +3,11 @@ import { api, ApiError } from '../api/client'
 import type { Line, Location, Pattern, PatternStop } from '../api/types'
 import { CrudTable, useList } from '../components/Crud'
 import type { Column, FormField } from '../components/Crud'
-import { AttributeEditor, LINE_ATTRIBUTE_SUGGESTIONS } from '../components/AttributeEditor'
+import {
+  AttributeEditor,
+  LINE_ATTRIBUTE_SUGGESTIONS,
+  PATTERN_ATTRIBUTE_SUGGESTIONS,
+} from '../components/AttributeEditor'
 import { EntitySelect } from '../components/EntitySelect'
 import { MapView } from '../components/MapView'
 import { Alert, Empty, Field, Modal, PageHead, Panel, Spinner } from '../components/ui'
@@ -196,6 +200,22 @@ function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
             label: 'Direction',
             render: (row) => (row.direction === 0 ? 'Outbound (0)' : 'Inbound (1)'),
           },
+          {
+            key: 'badges',
+            label: 'Attributes',
+            render: (row) =>
+              row.badges?.length ? (
+                <>
+                  {row.badges.map((badge) => (
+                    <span className="bubble" key={badge}>
+                      {badge}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                <span className="muted">—</span>
+              ),
+          },
           { key: 'headsign', label: 'Headsign' },
           { key: 'stop_count', label: 'Stops', numeric: true },
           {
@@ -226,6 +246,7 @@ function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
             <button className="small" onClick={() => setEditingStops(row)}>
               Stops ({row.stop_count})
             </button>{' '}
+            {canEdit && <PatternAttributesButton pattern={row} onSaved={reload} />}{' '}
             {canEdit && (
               <button
                 className="small"
@@ -254,6 +275,80 @@ function PatternsPanel({ line, onClose }: { line: Line; onClose: () => void }) {
         />
       )}
     </Panel>
+  )
+}
+
+function PatternAttributesButton({
+  pattern,
+  onSaved,
+}: {
+  pattern: Pattern
+  onSaved: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState(pattern.attributes ?? [])
+  const [error, setError] = useState('')
+
+  async function save() {
+    setError('')
+    try {
+      await api.patch(`/patterns/${pattern.id}`, {
+        attributes: rows
+          .filter((r) => r.attribute_key.trim())
+          .map((r) => ({
+            attribute_key: r.attribute_key.trim(),
+            attribute_value: r.attribute_value,
+          })),
+      })
+      setOpen(false)
+      onSaved()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    }
+  }
+
+  return (
+    <>
+      <button
+        className="small"
+        title="Attributes shown as bubbles on duty cards and timetables"
+        onClick={() => {
+          setRows(pattern.attributes ?? [])
+          setOpen(true)
+        }}
+      >
+        Attributes
+      </button>
+      {open && (
+        <Modal
+          title={`Attributes — ${pattern.name}`}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <button onClick={() => setOpen(false)}>Cancel</button>
+              <button className="primary" onClick={save}>
+                Save
+              </button>
+            </>
+          }
+        >
+          <Alert kind="err">{error}</Alert>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            These describe this <em>variant</em> of the line, not the whole
+            line. Each non-empty <strong>value</strong> prints as a bubble
+            beside the line number — set <code>TYPE</code> to <code>EXP</code>{' '}
+            and a duty card shows{' '}
+            <span className="bubble">127</span>
+            <span className="bubble">EXP</span>.
+          </p>
+          <AttributeEditor
+            value={rows}
+            onChange={setRows}
+            suggestions={PATTERN_ATTRIBUTE_SUGGESTIONS}
+          />
+        </Modal>
+      )}
+    </>
   )
 }
 

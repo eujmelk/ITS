@@ -76,12 +76,27 @@ awkward without them:
   without cloning the whole pattern. Stored as the *absence* of a stop time,
   so the timetable shows a gap and exports leave it out — rather than a call
   at 00:00 that quietly corrupts the feed.
+- **Pattern attributes.** Locations and lines already had generic key/value
+  attributes; patterns now do too. They describe one *variant* of a line, so
+  `TYPE=EXP` on the express pattern and `TYPE=LOCAL` on the stopping one. Each
+  non-empty **value** prints as an outlined bubble beside the line number —
+  a duty card shows (127) (EXP) — and above the column on a combined
+  timetable. Outlined rather than solid, so it reads as a qualifier on the
+  line rather than as another line number.
 - **Editable instance name.** The name in the sidebar, on the login page and
   in the browser tab is the `instance_name` setting, not an env var, so it can
   be changed without a redeploy. The agency details next to it are what GTFS
   needs.
 
 ## Printed output
+
+**Timetables can combine patterns.** A line's express and stopping variants
+belong on one sheet, not two — a passenger reads a single column of stops.
+Tick several patterns and their stop lists are merged: the longest becomes the
+spine, and stops the others add are folded in at their anchored positions. A
+stop only some variants serve is marked "◦", and each column carries the
+attribute bubbles of the pattern its trip runs. Combining patterns of
+different lines is refused — that is a different route wanting its own sheet.
 
 **Timetables** print every stop on the pattern, not only the timepoints.
 Timepoints are what a reader navigates by, so they carry the weight — bold,

@@ -34,9 +34,12 @@ export default function SchedulePage() {
 
   const [boardId, setBoardId] = useState<string>('')
   const [lineId, setLineId] = useState<string>('')
-  const [patternId, setPatternId] = useState<string>('')
+  // Several patterns can share one sheet: a line's express and stopping
+  // variants belong on one timetable, not two.
+  const [patternIds, setPatternIds] = useState<number[]>([])
   const [calendarId, setCalendarId] = useState<string>('')
   const [timepointsOnly, setTimepointsOnly] = useState(false)
+  const patternId = patternIds.length === 1 ? String(patternIds[0]) : ''
 
   const { items: patterns } = useList<Pattern>('/patterns', { line_id: lineId }, !!lineId)
   const { items: calendars } = useList<Calendar>(
@@ -56,10 +59,15 @@ export default function SchedulePage() {
     if (!lineId && lines.length) setLineId(String(lines[0].id))
   }, [lines, lineId])
   useEffect(() => {
-    if (patterns.length && !patterns.some((p) => String(p.id) === patternId)) {
-      setPatternId(String(patterns[0].id))
+    // Drop any selection that no longer belongs to the chosen line, and fall
+    // back to the first pattern so the page is never blank for no reason.
+    const valid = patternIds.filter((id) => patterns.some((p) => p.id === id))
+    if (valid.length !== patternIds.length) {
+      setPatternIds(valid)
+    } else if (patterns.length && valid.length === 0) {
+      setPatternIds([patterns[0].id])
     }
-  }, [patterns, patternId])
+  }, [patterns, patternIds])
 
   const [timetable, setTimetable] = useState<Timetable | null>(null)
   const [loading, setLoading] = useState(false)
@@ -72,8 +80,13 @@ export default function SchedulePage() {
   const [columnLimit, setColumnLimit] = useState(40)
   const [columnOffset, setColumnOffset] = useState(0)
 
+  const patternQuery = useMemo(
+    () => patternIds.map((id) => ['pattern_id', String(id)] as [string, string]),
+    [patternIds],
+  )
+
   async function load() {
-    if (!boardId || !patternId) {
+    if (!boardId || patternIds.length === 0) {
       setTimetable(null)
       return
     }
@@ -83,11 +96,11 @@ export default function SchedulePage() {
       setTimetable(
         await api.get<Timetable>('/timetables', {
           schedule_version_id: boardId,
-          pattern_id: patternId,
           calendar_id: calendarId || undefined,
           timepoints_only: timepointsOnly,
           limit: columnLimit,
           offset: columnOffset,
+          _repeated: patternQuery,
         }),
       )
       setSelectedTrips([])
@@ -120,7 +133,9 @@ export default function SchedulePage() {
     }
   }
 
-  const pattern = patterns.find((p) => String(p.id) === patternId)
+  // Generation always targets a single pattern; with several selected it is
+  // the first, which the button's tooltip says.
+  const pattern = patterns.find((p) => patternIds.includes(p.id))
 
   return (
     <>
@@ -131,17 +146,22 @@ export default function SchedulePage() {
           <>
             <button
               disabled={!timetable}
-              title="Every stop, with timepoints in bold"
+              title={
+                patternIds.length > 1
+                  ? 'One sheet combining the selected patterns'
+                  : 'Every stop, with timepoints in bold'
+              }
               onClick={() =>
                 api.openBlob('/pdf/timetable', {
                   schedule_version_id: boardId,
-                  pattern_id: patternId,
                   calendar_id: calendarId || undefined,
                   timepoints_only: false,
+                  _repeated: patternQuery,
                 })
               }
             >
               PDF timetable
+              {patternIds.length > 1 ? ` (${patternIds.length} patterns)` : ''}
             </button>
             <button
               disabled={!boardId}
@@ -154,7 +174,16 @@ export default function SchedulePage() {
               CSV export
             </button>
             {canEdit && (
-              <button className="primary" disabled={!patternId} onClick={() => setGenerateOpen(true)}>
+              <button
+                className="primary"
+                disabled={patternIds.length === 0}
+                title={
+                  patternIds.length > 1
+                    ? 'Trips are generated onto one pattern — the first selected'
+                    : undefined
+                }
+                onClick={() => setGenerateOpen(true)}
+              >
                 Generate trips
               </button>
             )}
@@ -180,21 +209,44 @@ export default function SchedulePage() {
               value={lineId ? Number(lineId) : null}
               onChange={(id) => {
                 setLineId(id ? String(id) : '')
-                setPatternId('')
+                // Selections belong to the old line; the effect below picks a
+                // sensible default once the new line's patterns arrive.
+                setPatternIds([])
               }}
               labelOf={(row) => `${row.short_name}${row.long_name ? ` — ${row.long_name}` : ''}`}
               placeholder="Search lines…"
             />
           </Field>
-          <Field label="Pattern">
-            <select value={patternId} onChange={(e) => setPatternId(e.target.value)}>
-              <option value="">— choose —</option>
+          <Field
+            label="Patterns"
+            hint="tick more than one to combine them on a single sheet"
+          >
+            <div className="pattern-picker">
+              {patterns.length === 0 && <span className="muted small">No patterns.</span>}
               {patterns.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} (dir {p.direction})
-                </option>
+                <label key={p.id} className="pattern-option" title={p.name}>
+                  <input
+                    type="checkbox"
+                    checked={patternIds.includes(p.id)}
+                    onChange={(e) =>
+                      setPatternIds((current) =>
+                        e.target.checked
+                          ? [...current, p.id]
+                          : current.filter((id) => id !== p.id),
+                      )
+                    }
+                  />
+                  <span>
+                    {p.name} <span className="muted">(dir {p.direction})</span>
+                    {p.badges?.map((badge) => (
+                      <span className="bubble" key={badge} style={{ marginLeft: 4 }}>
+                        {badge}
+                      </span>
+                    ))}
+                  </span>
+                </label>
               ))}
-            </select>
+            </div>
           </Field>
           <Field label="Calendar">
             <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
@@ -255,43 +307,61 @@ export default function SchedulePage() {
               <thead>
                 <tr>
                   <th className="stopname">Stop</th>
-                  {timetable.trip_ids.map((tripId) => (
-                    <th key={tripId} style={{ textAlign: 'right' }}>
-                      <label
-                        className="small"
-                        style={{ cursor: 'pointer', margin: 0, color: 'var(--muted)' }}
-                        title={`Trip ${tripId}`}
-                      >
-                        <input
-                          type="checkbox"
-                          style={{ width: 'auto', marginRight: 3 }}
-                          checked={selectedTrips.includes(tripId)}
-                          onChange={(e) =>
-                            setSelectedTrips((current) =>
-                              e.target.checked
-                                ? [...current, tripId]
-                                : current.filter((id) => id !== tripId),
-                            )
-                          }
-                        />
-                        <span
-                          onClick={(e) => {
-                            e.preventDefault()
-                            setEditingTrip(tripId)
-                          }}
+                  {timetable.trip_ids.map((tripId, index) => {
+                    const column = timetable.columns?.[index]
+                    return (
+                      <th key={tripId} style={{ textAlign: 'right' }}>
+                        <label
+                          className="small"
+                          style={{ cursor: 'pointer', margin: 0, color: 'var(--muted)' }}
+                          title={column?.pattern_name ?? `Trip ${tripId}`}
                         >
-                          #{tripId}
-                        </span>
-                      </label>
-                    </th>
-                  ))}
+                          <input
+                            type="checkbox"
+                            style={{ width: 'auto', marginRight: 3 }}
+                            checked={selectedTrips.includes(tripId)}
+                            onChange={(e) =>
+                              setSelectedTrips((current) =>
+                                e.target.checked
+                                  ? [...current, tripId]
+                                  : current.filter((id) => id !== tripId),
+                              )
+                            }
+                          />
+                          <span
+                            onClick={(e) => {
+                              e.preventDefault()
+                              setEditingTrip(tripId)
+                            }}
+                          >
+                            #{tripId}
+                          </span>
+                        </label>
+                        {timetable.combined &&
+                          column?.badges?.map((badge) => (
+                            <div key={badge}>
+                              <span className="bubble">{badge}</span>
+                            </div>
+                          ))}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {timetable.rows.map((row) => (
-                  <tr key={row.pattern_stop_id} className={row.is_timepoint ? 'timepoint' : ''}>
+                  <tr key={row.location_id} className={row.is_timepoint ? 'timepoint' : ''}>
                     <td className="stopname" title={row.location_name}>
                       {row.location_name}
+                      {row.partial && (
+                        <span
+                          className="muted"
+                          title="Only some of the combined patterns serve this stop"
+                        >
+                          {' '}
+                          ◦
+                        </span>
+                      )}
                     </td>
                     {row.cells.map((cell, index) => (
                       <td

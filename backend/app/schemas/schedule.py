@@ -255,21 +255,46 @@ class TimetableRow(BaseModel):
     location_name: str
     is_timepoint: bool
     cells: list[TimetableCell]
+    #: True when at least one of the combined patterns skips this stop
+    #: entirely -- the row exists only because another pattern serves it.
+    partial: bool = False
+
+
+class TimetableColumn(BaseModel):
+    """One trip column, with the pattern it belongs to."""
+
+    trip_id: int
+    pattern_id: int
+    pattern_name: str | None = None
+    line_short_name: str | None = None
+    headsign: str | None = None
+    #: Pattern attribute values, e.g. ["EXP"].
+    badges: list[str] = []
 
 
 class Timetable(BaseModel):
-    """A pattern's trips as a stops-down / trips-across grid."""
+    """Trips as a stops-down / trips-across grid.
+
+    Usually one pattern. When several are combined, their stop lists are
+    merged into one column of stops and ``pattern_ids`` lists what went in.
+    """
 
     schedule_version_id: int
     schedule_version_name: str
     line_id: int
     line_short_name: str
     line_long_name: str | None = None
+    #: The primary pattern -- the first requested, or the one with most stops.
     pattern_id: int
     pattern_name: str
+    #: Every pattern in this grid, in the order they were merged.
+    pattern_ids: list[int] = []
+    pattern_names: list[str] = []
+    combined: bool = False
     direction: int
     calendar_id: int | None = None
     calendar_name: str | None = None
+    columns: list[TimetableColumn] = []
     #: The trips on this page, left to right in departure order.
     trip_ids: list[int]
     rows: list[TimetableRow]

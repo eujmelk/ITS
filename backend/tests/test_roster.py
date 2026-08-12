@@ -348,6 +348,8 @@ def test_duty_card_expands_block_segments_into_legs(client, auth):
     # Trips carry their timepoints, including both termini.
     first_trip = drive.legs[1]
     assert first_trip.line_short_name == "T1"
+    # Pattern attributes print as bubbles next to the line number: (T1) (LOCAL).
+    assert first_trip.badges == ["LOCAL"]
     names = [tp.name for tp in first_trip.timepoints]
     assert names[0] == "Alpha" and names[-1] == "Charlie"
     assert first_trip.timepoints[0].is_terminus is True

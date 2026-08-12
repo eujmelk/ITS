@@ -83,6 +83,25 @@ class PatternStopRead(PatternStopBase, ORMModel):
     lon: float | None = None
 
 
+class PatternAttributeBase(BaseModel):
+    attribute_key: str = Field(min_length=1, max_length=64)
+    attribute_value: str | None = Field(default=None, max_length=512)
+
+
+class PatternAttributeCreate(PatternAttributeBase):
+    pattern_id: int
+
+
+class PatternAttributeUpdate(BaseModel):
+    attribute_key: str | None = Field(default=None, min_length=1, max_length=64)
+    attribute_value: str | None = Field(default=None, max_length=512)
+
+
+class PatternAttributeRead(PatternAttributeBase, ORMModel):
+    id: int
+    pattern_id: int
+
+
 class PatternBase(BaseModel):
     line_id: int
     name: str = Field(min_length=1, max_length=255)
@@ -94,6 +113,7 @@ class PatternBase(BaseModel):
 
 class PatternCreate(PatternBase):
     stops: list[PatternStopBase] = []
+    attributes: list[PatternAttributeBase] = []
 
 
 class PatternUpdate(BaseModel):
@@ -102,12 +122,17 @@ class PatternUpdate(BaseModel):
     headsign: str | None = Field(default=None, max_length=255)
     is_primary: bool | None = None
     notes: str | None = None
+    # When present, replaces the whole attribute set for this pattern.
+    attributes: list[PatternAttributeBase] | None = None
 
 
 class PatternRead(PatternBase, ORMModel):
     id: int
     stop_count: int = 0
     total_run_seconds: int = 0
+    attributes: list[PatternAttributeRead] = []
+    #: Non-empty attribute values, in key order -- what prints as bubbles.
+    badges: list[str] = []
 
 
 class PatternDetail(PatternRead):

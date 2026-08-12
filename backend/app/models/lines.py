@@ -75,9 +75,37 @@ class Pattern(TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="PatternStop.sequence",
     )
+    attributes: Mapped[list[PatternAttribute]] = relationship(
+        back_populates="pattern", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         CheckConstraint("direction IN (0, 1)", name="direction_zero_or_one"),
+    )
+
+
+class PatternAttribute(Base):
+    """Generic key/value on a pattern, same idea as location and line ones.
+
+    Where a line attribute describes the whole line, this describes one
+    variant of it -- ``TYPE=EXP`` on the express pattern and ``TYPE=LOCAL`` on
+    the stopping one. Values are printed as bubbles beside the line number on
+    duty cards, so a driver sees "127" "EXP" at a glance.
+    """
+
+    __tablename__ = "pattern_attributes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pattern_id: Mapped[int] = mapped_column(
+        ForeignKey("patterns.id", ondelete="CASCADE"), index=True
+    )
+    attribute_key: Mapped[str] = mapped_column(String(64))
+    attribute_value: Mapped[str | None] = mapped_column(String(512), default=None)
+
+    pattern: Mapped[Pattern] = relationship(back_populates="attributes")
+
+    __table_args__ = (
+        UniqueConstraint("pattern_id", "attribute_key", name="uq_pattern_attribute"),
     )
 
 

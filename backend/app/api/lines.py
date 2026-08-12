@@ -6,7 +6,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.deps import DbSession, require_planner
 from app.enums import LocationType
-from app.models import Line, LineAttribute, Location, Pattern, PatternStop, Trip
+from app.models import (
+    Line,
+    LineAttribute,
+    Location,
+    Pattern,
+    PatternAttribute,
+    PatternStop,
+    Trip,
+)
 from app.schemas.lines import (
     LineAttributeCreate,
     LineAttributeRead,
@@ -14,6 +22,9 @@ from app.schemas.lines import (
     LineCreate,
     LineRead,
     LineUpdate,
+    PatternAttributeCreate,
+    PatternAttributeRead,
+    PatternAttributeUpdate,
     PatternCreate,
     PatternDetail,
     PatternStopRead,
@@ -39,8 +50,18 @@ def _serialize_pattern_stop(stop: PatternStop) -> PatternStopRead:
     return data
 
 
+def pattern_badges(attributes) -> list[str]:
+    """The values printed as bubbles: "TYPE=EXP" shows as "EXP"."""
+    return [
+        (a.attribute_value or "").strip()
+        for a in sorted(attributes, key=lambda a: a.attribute_key)
+        if (a.attribute_value or "").strip()
+    ]
+
+
 def serialize_pattern(obj: Pattern, db: Session) -> PatternDetail:
     data = PatternDetail.model_validate(obj)
+    data.badges = pattern_badges(obj.attributes)
     stops = sorted(obj.pattern_stops, key=lambda s: s.sequence)
     data.stops = [_serialize_pattern_stop(s) for s in stops]
     data.stop_count = len(stops)
@@ -108,10 +129,32 @@ line_attributes_router = crud_router(
 )
 
 
+def _replace_pattern_attributes(obj: Pattern, entries, db: Session) -> None:
+    for existing in list(obj.attributes):
+        db.delete(existing)
+    db.flush()
+    for entry in entries:
+        db.add(
+            PatternAttribute(
+                pattern_id=obj.id,
+                attribute_key=entry.attribute_key.strip(),
+                attribute_value=entry.attribute_value,
+            )
+        )
+    db.flush()
+
+
 def _pattern_on_create(obj: Pattern, payload: PatternCreate, db: Session) -> None:
     check_exists(db, Line, obj.line_id, "line_id")
     if payload.stops:
         _write_pattern_stops(db, obj, payload.stops)
+    if payload.attributes:
+        _replace_pattern_attributes(obj, payload.attributes, db)
+
+
+def _pattern_on_update(obj: Pattern, payload: PatternUpdate, db: Session) -> None:
+    if payload.attributes is not None:
+        _replace_pattern_attributes(obj, payload.attributes, db)
 
 
 def _pattern_on_delete(obj: Pattern, db: Session) -> None:
@@ -136,11 +179,26 @@ patterns_router = crud_router(
     order_by=("line_id", "direction", "name"),
     options=(
         selectinload(Pattern.pattern_stops).selectinload(PatternStop.location),
+        selectinload(Pattern.attributes),
     ),
     serialize=serialize_pattern,
     on_create=_pattern_on_create,
+    on_update=_pattern_on_update,
     on_delete=_pattern_on_delete,
     label="Pattern",
+)
+
+pattern_attributes_router = crud_router(
+    model=PatternAttribute,
+    read_schema=PatternAttributeRead,
+    create_schema=PatternAttributeCreate,
+    update_schema=PatternAttributeUpdate,
+    prefix="/pattern-attributes",
+    tags=["lines"],
+    search_fields=("attribute_key", "attribute_value"),
+    filter_fields=("pattern_id", "attribute_key"),
+    order_by=("pattern_id", "attribute_key"),
+    label="Pattern attribute",
 )
 
 
@@ -260,9 +318,23 @@ def duplicate_pattern(pattern_id: int, db: DbSession, name: str | None = None):
                 drop_off_type=stop.drop_off_type,
             )
         )
+    # A variant of an express pattern is still express until told otherwise.
+    for attribute in source.attributes:
+        db.add(
+            PatternAttribute(
+                pattern_id=copy.id,
+                attribute_key=attribute.attribute_key,
+                attribute_value=attribute.attribute_value,
+            )
+        )
     commit(db)
     db.refresh(copy)
     return serialize_pattern(copy, db)
 
 
-routers: list[APIRouter] = [router, line_attributes_router, patterns_router]
+routers: list[APIRouter] = [
+    router,
+    line_attributes_router,
+    patterns_router,
+    pattern_attributes_router,
+]

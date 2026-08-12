@@ -82,7 +82,14 @@
   .badge.pull { background: #a3541a; }
   .line {
     display: inline-block; background: #1f4e79; color: #fff; font-weight: bold;
-    padding: 0 6px; border-radius: 2px; margin-right: 4px;
+    padding: 0 6px; border-radius: 2px; margin-right: 3px;
+  }
+  /* Pattern attribute bubbles, e.g. (127) (EXP). Outlined rather than solid
+     so they read as a qualifier on the line, not another line number. */
+  .attr {
+    display: inline-block; border: 1px solid #1f4e79; color: #1f4e79;
+    font-weight: bold; padding: 0 5px; border-radius: 7px; margin-right: 3px;
+    font-size: 7.5pt; letter-spacing: .3px;
   }
   .tps { margin-top: 2px; font-size: 8pt; color: #333; }
   .tps span { margin-right: 9px; white-space: nowrap; }
@@ -163,6 +170,7 @@
         </td>
         <td>
           {% if leg.line_short_name %}<span class="line">{{ leg.line_short_name }}</span>{% endif %}
+          {%- for badge in leg.badges %}<span class="attr">{{ badge }}</span>{% endfor %}
           {%- if leg.headsign %}{{ leg.headsign }}{% else %}{{ leg.from_name }} → {{ leg.to_name }}{% endif %}
           {% if leg.timepoints %}
             <div class="tps">

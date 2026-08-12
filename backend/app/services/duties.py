@@ -157,6 +157,8 @@ class CardLeg:
     piece_type: str
     line_short_name: str | None = None
     headsign: str | None = None
+    #: Pattern attribute values -- "(127) (EXP)" beside the line number.
+    badges: list[str] = field(default_factory=list)
     from_name: str | None = None
     to_name: str | None = None
     start_seconds: int | None = None
@@ -255,6 +257,7 @@ def expand_for_card(db: Session, duty: Duty) -> list[CardEvent]:
                 piece_type=block_piece.piece_type,
                 line_short_name=endpoint.line_short_name,
                 headsign=endpoint.headsign,
+                badges=endpoint.badges,
                 from_name=endpoint.from_location_name,
                 to_name=endpoint.to_location_name,
                 start_seconds=endpoint.start_seconds,

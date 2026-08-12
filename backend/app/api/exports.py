@@ -2,6 +2,7 @@
 
 import csv
 import io
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -38,7 +39,16 @@ def timetable_pdf(
     db: DbSession,
     _user: ReaderUser,
     schedule_version_id: int,
-    pattern_id: int,
+    pattern_id: Annotated[
+        list[int],
+        Query(
+            description=(
+                "Repeat to print several patterns on one sheet, e.g. "
+                "?pattern_id=3&pattern_id=4. Their stop lists are merged into "
+                "a single column of stops."
+            )
+        ),
+    ],
     calendar_id: int | None = None,
     timepoints_only: bool = Query(
         default=False,
@@ -53,8 +63,7 @@ def timetable_pdf(
         db, schedule_version_id, pattern_id, calendar_id, timepoints_only
     )
     board = db.get(ScheduleVersion, schedule_version_id)
-    pattern = db.get(Pattern, pattern_id)
-    line = db.get(Line, pattern.line_id) if pattern else None
+    line = db.get(Line, timetable.line_id)
 
     pdf = render_timetable_pdf(
         timetable,
