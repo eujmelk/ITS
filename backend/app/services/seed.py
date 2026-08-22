@@ -38,19 +38,28 @@ from app.models import (
     VehicleType,
 )
 from app.security import hash_password
+from app.services.environments import ensure_default
 from app.services.parameters import ensure_seeded
 from app.services.trips import generate_stop_times, set_stop_times
 
 log = logging.getLogger(__name__)
 
 
-def bootstrap(db: Session) -> None:
-    _ensure_admin(db)
-    added = ensure_seeded(db)
+def bootstrap(control: Session) -> None:
+    """First-run setup on the control database.
+
+    The control database doubles as the first environment on an upgraded
+    install, so the parameters and demo data go in here too — a fresh
+    environment gets its own copy when it is provisioned.
+    """
+    _ensure_admin(control)
+    ensure_default(control)
+
+    added = ensure_seeded(control)
     if added:
         log.info("Seeded %s operating parameters", added)
     if settings.seed_demo_data:
-        _seed_demo(db)
+        _seed_demo(control)
 
 
 def _ensure_admin(db: Session) -> None:

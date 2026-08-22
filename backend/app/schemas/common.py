@@ -62,6 +62,10 @@ class AppConfig(BaseModel):
     """Public runtime config handed to the frontend before login."""
 
     app_name: str
+    #: Which environment this response describes. Each one names itself, so
+    #: the title and map settings follow whichever city you are working in.
+    environment_key: str = ""
+    environment_name: str = ""
     map_tile_url: str
     map_attribution: str
     map_default_lat: float

@@ -9,8 +9,22 @@ export interface User {
   is_active: boolean
 }
 
+export interface Environment {
+  id: number
+  key: string
+  name: string
+  database_name: string
+  is_active: boolean
+  is_default: boolean
+  /** True for the environment serving the current request. */
+  is_current: boolean
+  notes: string | null
+}
+
 export interface AppConfig {
   app_name: string
+  environment_key: string
+  environment_name: string
   map_tile_url: string
   map_attribution: string
   map_default_lat: number

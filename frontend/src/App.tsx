@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { switchEnvironment } from './api/client'
 import { useApp } from './state/AppContext'
+import EnvironmentsPage from './pages/EnvironmentsPage'
 import { AboutDialog, MenuBar, StatusBar, TabStrip, useGo } from './components/Chrome'
 import type { MenuDef, TabDef } from './components/Chrome'
 import LoginPage from './pages/LoginPage'
@@ -28,7 +30,7 @@ const TABS: TabDef[] = [
 ]
 
 export default function App() {
-  const { user, loading, logout, isAdmin, config } = useApp()
+  const { user, loading, logout, isAdmin, config, environments, environment } = useApp()
   const go = useGo()
   const location = useLocation()
   const [aboutOpen, setAboutOpen] = useState(false)
@@ -68,6 +70,26 @@ export default function App() {
         })),
     },
     {
+      // The switcher the user asked for: pick a city, the app reloads into it.
+      title: 'Environments',
+      items: [
+        ...environments.map((row) => ({
+          label: row.name,
+          accel: row.key,
+          checked: row.key === environment?.key,
+          onSelect: () => {
+            if (row.key !== environment?.key) switchEnvironment(row.key)
+          },
+        })),
+        { separator: true, label: 'sep-env' },
+        {
+          label: 'Manage environments…',
+          hidden: !isAdmin,
+          onSelect: () => go('/environments'),
+        },
+      ],
+    },
+    {
       title: 'Tools',
       items: [
         { label: 'Operating parameters…', onSelect: () => go('/settings') },
@@ -101,6 +123,7 @@ export default function App() {
           <Route path="/itinerary" element={<ItineraryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           {isAdmin && <Route path="/users" element={<UsersPage />} />}
+          {isAdmin && <Route path="/environments" element={<EnvironmentsPage />} />}
           <Route path="*" element={<div className="empty">Page not found.</div>} />
         </Routes>
       </div>
@@ -108,7 +131,9 @@ export default function App() {
       <StatusBar
         right={
           <>
-            <span>{config?.app_name ?? 'Transit'}</span>
+            {/* Which city you are in belongs where you can always see it: an
+                edit made in the wrong environment is expensive to undo. */}
+            <strong>{environment?.name ?? config?.app_name ?? 'Transit'}</strong>
             <span className="muted">|</span>
             <span>
               {user.full_name || user.username} ({user.role})

@@ -2,6 +2,7 @@
 
 from app.models.auth import User
 from app.models.base import Base
+from app.models.environments import Environment
 from app.models.fares import FareRule, FareZone
 from app.models.fleet import Block, BlockPiece, Vehicle, VehicleType
 from app.models.lines import Line, Pattern, PatternAttribute, PatternStop

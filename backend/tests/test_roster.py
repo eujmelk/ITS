@@ -304,7 +304,9 @@ def test_a_block_from_another_board_is_rejected(client, auth):
 
 def test_duty_card_expands_block_segments_into_legs(client, auth):
     """A card saying only "drive block B01" is useless to a driver."""
-    from app.db import SessionLocal
+    # The default environment is the control database, which is where the
+    # other suites built their network.
+    from app.db import ControlSession as SessionLocal
     from app.models import Duty
     from app.services.duties import expand_for_card
 

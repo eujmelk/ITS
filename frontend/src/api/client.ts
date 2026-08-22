@@ -1,6 +1,7 @@
 export const API = '/api/v1'
 
 const TOKEN_KEY = 'transit.token'
+const ENVIRONMENT_KEY = 'transit.environment'
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -8,6 +9,33 @@ export function getToken(): string | null {
 export function setToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+/**
+ * The environment (city) every request is scoped to.
+ *
+ * Sent as `X-Environment` on every call. Absent means "the default one", so a
+ * fresh login and a plain curl both work. It is stored separately from the
+ * token because one login reaches every environment.
+ */
+export function getEnvironment(): string | null {
+  return localStorage.getItem(ENVIRONMENT_KEY)
+}
+export function setEnvironment(key: string | null) {
+  if (key) localStorage.setItem(ENVIRONMENT_KEY, key)
+  else localStorage.removeItem(ENVIRONMENT_KEY)
+}
+
+/**
+ * Switch environment.
+ *
+ * A full reload, deliberately: every page's loaded rows, cached labels and
+ * open editors belong to the city you are leaving. Reloading is the only
+ * honest way to be sure none of it survives the switch.
+ */
+export function switchEnvironment(key: string) {
+  setEnvironment(key)
+  window.location.reload()
 }
 
 export class ApiError extends Error {
@@ -37,10 +65,17 @@ function describe(status: number, body: any): string {
   return `Request failed (${status})`
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers)
+function authHeaders(existing?: HeadersInit): Headers {
+  const headers = new Headers(existing)
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
+  const environment = getEnvironment()
+  if (environment) headers.set('X-Environment', environment)
+  return headers
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = authHeaders(init.headers)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
 
   const response = await fetch(`${API}${path}`, { ...init, headers })
@@ -144,11 +179,9 @@ export const api = {
   async upload<T>(path: string, file: File, params?: Record<string, any>): Promise<T> {
     const body = new FormData()
     body.append('file', file)
-    const headers = new Headers()
-    const token = getToken()
-    if (token) headers.set('Authorization', `Bearer ${token}`)
     // Deliberately no Content-Type: the browser must set it, because only it
     // knows the multipart boundary.
+    const headers = authHeaders()
     const response = await fetch(`${API}${path}${qs(params)}`, {
       method: 'POST',
       headers,

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.config import settings
-from app.db import SessionLocal
+from app.db import ControlSession
 from app.services.seed import bootstrap
 
 logging.basicConfig(
@@ -20,7 +20,7 @@ log = logging.getLogger("app")
 async def lifespan(app: FastAPI):
     # Migrations have already run in the entrypoint by this point; this only
     # inserts rows (admin user, parameters, optional demo data).
-    db = SessionLocal()
+    db = ControlSession()
     try:
         bootstrap(db)
     except Exception:  # noqa: BLE001 - never let seeding stop the API booting

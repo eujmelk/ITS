@@ -84,6 +84,51 @@ awkward without them:
   be changed without a redeploy. The agency details next to it are what GTFS
   needs.
 
+## Environments
+
+An **environment** is a city or operation with its own database: `city1`,
+`city2`. Switch between them from the **Environments** menu; the one you are
+working in is always shown at the bottom right, because an edit made in the
+wrong city is expensive to undo.
+
+**Isolation comes from the database, not from a filter.** There are 24 tables
+and around 100 queries; a tenant column on each would mean auditing every one
+of them, and a missed filter fails *silently* — the itinerary finder happily
+routing a passenger from city1 to city2. Instead each environment gets its own
+database and the connection is chosen per request, so the models and every
+query are untouched by multi-tenancy.
+
+| Where | What |
+| --- | --- |
+| Control database (`DATABASE_URL`) | `users`, `environments` |
+| `its_city1`, `its_city2`, … | All planning data, one city each |
+
+- **Users are shared.** One login reaches every environment, with the same
+  role in each. Sessions are issued by the control database, so switching
+  city does not sign you out.
+- **Everything else is not.** Locations, lines, timetables, blocks, rosters,
+  fares *and* operating parameters are per-environment — so each city has its
+  own driving rules, its own name and its own GTFS agency identity.
+- **The existing database registers itself as `default` on first start.** An
+  install that predates this feature upgrades with no data migration: the data
+  is already there, it just gains a name.
+- **Creating one provisions a database**, builds the schema and seeds the
+  parameters. The database role therefore needs `CREATE DATABASE`; the compose
+  file uses the Postgres image's superuser, which has it.
+- **The `X-Environment` header** selects the environment. Absent means the
+  default, so `curl` and existing integrations keep working unchanged. An
+  unknown key is a 404, never a quiet fall-back to another city.
+- Migrations run against the control database **and every environment** on
+  container start (`scripts/migrate_all.py`). One environment failing to
+  migrate is reported but does not keep the others offline.
+
+Deleting an environment unregisters it and leaves the database on disk unless
+`drop_data` is passed; the UI makes you type the key to confirm that one.
+
+*Naming note:* "environment" usually means dev/staging/prod. The model allows
+either reading — nothing stops keys like `city1_test` — but if you ever want
+both axes properly, that is a second column rather than a convention.
+
 ## Importing locations from CSV
 
 Locations ▸ **Import CSV…** round-trips the export: download, edit in a
@@ -360,16 +405,30 @@ cd backend
 pytest
 ```
 
-They run against SQLite, so no container is needed — every column type in the
-models is portable. Two caveats: SQLite does not enforce foreign keys by
-default, so cascade behaviour is not covered; and `test_pdf_timetable_renders`
-needs WeasyPrint's pango/cairo libraries, which are installed in the API image
-but probably not on a bare Windows host. To run the suite in the same
-environment as production:
+They run against **PostgreSQL**, not SQLite: environment isolation works by
+giving each city its own database, and SQLite cannot express that — testing on
+it would leave the one thing most worth testing untested. The suite creates a
+scratch control database per run, drops it at the end, and drops any
+environment database it provisioned along the way.
+
+Easiest, and the same environment as production (it also has WeasyPrint's
+pango/cairo libraries, which `test_pdf_timetable_renders` needs):
 
 ```powershell
+docker compose up -d db
 docker compose run --rm api sh -c "pip install -r requirements-dev.txt && pytest"
 ```
+
+Against a database on the host instead:
+
+```powershell
+cd backend
+$env:TEST_DATABASE_URL = "postgresql+psycopg://transit:transit@localhost:5432/postgres"
+pytest
+```
+
+The database named in `TEST_DATABASE_URL` is only used to connect; it is never
+modified.
 
 ### Type-checking the frontend
 

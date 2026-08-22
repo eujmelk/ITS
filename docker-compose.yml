@@ -27,7 +27,13 @@ services:
       db:
         condition: service_healthy
     environment:
+      # The *control* database: users and the environment registry. Each
+      # environment (city) gets its own database alongside it, named
+      # <ENVIRONMENT_DB_PREFIX><key>. The application creates those itself, so
+      # this role must be allowed to CREATE DATABASE — POSTGRES_USER is the
+      # image's superuser, which is.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-transit}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-transit}
+      ENVIRONMENT_DB_PREFIX: ${ENVIRONMENT_DB_PREFIX:-its_}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

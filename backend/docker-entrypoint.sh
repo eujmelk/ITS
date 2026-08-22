@@ -24,8 +24,10 @@ print(f"[entrypoint] database unreachable after 120s: {last}", file=sys.stderr)
 sys.exit(1)
 PY
 
+# The control database plus every registered environment. One failing
+# environment is reported but does not hold the others offline.
 echo "[entrypoint] applying migrations..."
-alembic upgrade head
+python -m scripts.migrate_all
 
 echo "[entrypoint] starting: $*"
 exec "$@"

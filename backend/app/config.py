@@ -10,7 +10,11 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
 
+    #: The *control* database: users and the environment registry. On an
+    #: upgraded single-database install it doubles as the first environment.
     database_url: str = "postgresql+psycopg://transit:transit@localhost:5432/transit"
+    #: New environments get a database named `<prefix><key>`.
+    environment_db_prefix: str = "its_"
 
     secret_key: str = "insecure-development-key-change-me"
     jwt_algorithm: str = "HS256"
